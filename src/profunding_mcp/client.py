@@ -1,0 +1,58 @@
+"""HTTP client for the ProFunding REST API."""
+
+import httpx
+from typing import Any, Optional
+
+from .config import API_URL, API_KEY
+
+
+class ProFundingClient:
+    """Thin wrapper around the ProFunding REST API."""
+
+    def __init__(self):
+        headers = {"Content-Type": "application/json"}
+        if API_KEY:
+            headers["X-API-Key"] = API_KEY
+        self._client = httpx.AsyncClient(
+            base_url=API_URL,
+            headers=headers,
+            timeout=30.0,
+        )
+        self._tier: Optional[str] = None
+
+    async def validate_key(self) -> dict:
+        """Validate the API key at startup and cache the tier."""
+        if not API_KEY:
+            self._tier = "free"
+            return {"valid": True, "tier": "free"}
+        resp = await self._client.get("/mcp/validate")
+        resp.raise_for_status()
+        data = resp.json()
+        self._tier = data.get("tier", "free")
+        return data
+
+    @property
+    def tier(self) -> str:
+        return self._tier or "free"
+
+    def is_paid(self) -> bool:
+        return self._tier == "paid"
+
+    async def get(self, path: str, params: Optional[dict] = None) -> Any:
+        """GET request to the API."""
+        resp = await self._client.get(path, params=params)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def post(self, path: str, json: Optional[dict] = None) -> Any:
+        """POST request to the API."""
+        resp = await self._client.post(path, json=json)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def close(self):
+        await self._client.aclose()
+
+
+# Singleton
+client = ProFundingClient()
