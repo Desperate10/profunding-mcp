@@ -46,6 +46,33 @@ async def _require_paid():
         )
 
 
+# Canonical exchange names (lowercase → display)
+_EXCHANGE_NAMES: dict[str, str] | None = None
+
+
+async def _get_exchange_map() -> dict[str, str]:
+    """Build lowercase → canonical name map from the API."""
+    global _EXCHANGE_NAMES
+    if _EXCHANGE_NAMES is not None:
+        return _EXCHANGE_NAMES
+    try:
+        data = await client.get("/exchanges")
+        _EXCHANGE_NAMES = {
+            ex["name"].lower(): ex["name"]
+            for ex in data.get("exchanges", [])
+        }
+    except Exception:
+        _EXCHANGE_NAMES = {}
+    return _EXCHANGE_NAMES
+
+
+async def _normalize_exchange(name: str) -> str:
+    """Resolve user input to canonical exchange name (case-insensitive)."""
+    mapping = await _get_exchange_map()
+    canonical = mapping.get(name.lower())
+    return canonical if canonical else name
+
+
 def _fmt_opp(o: dict) -> str:
     """Format a single opportunity for display."""
     line = (
@@ -92,6 +119,8 @@ async def get_opportunities(
         limit: Max number of results (default 20)
         pre_tge_only: Only show opportunities where at least one DEX is pre-token (points farming)
     """
+    if exchange:
+        exchange = await _normalize_exchange(exchange)
     params = {}
     if min_apr > 0:
         params["min_apr"] = min_apr
@@ -149,6 +178,7 @@ async def get_historical_rates(
         exchange: Exchange name (e.g. "Hyperliquid")
         days: Lookback period in days (1-90, default 7)
     """
+    exchange = await _normalize_exchange(exchange)
     data = await client.get("/rates/historical", params={
         "symbol": symbol,
         "exchange": exchange,
@@ -190,6 +220,8 @@ async def run_backtest(
         position_size: Position size in USD (default 1000)
         days: Backtest period in days (1-90, default 7)
     """
+    long_exchange = await _normalize_exchange(long_exchange)
+    short_exchange = await _normalize_exchange(short_exchange)
     data = await client.post("/backtest", json={
         "symbol": symbol,
         "long_exchange": long_exchange,
@@ -244,6 +276,8 @@ async def get_rate_chart_data(
         short_exchange: Second exchange
         days: Lookback period (1-90, default 30)
     """
+    long_exchange = await _normalize_exchange(long_exchange)
+    short_exchange = await _normalize_exchange(short_exchange)
     data = await client.get("/rates/chart-data", params={
         "symbol": symbol,
         "long_exchange": long_exchange,
@@ -330,6 +364,8 @@ async def get_price_spread_data(
         days: Lookback period (1-30, default 7)
     """
     await _require_paid()
+    long_exchange = await _normalize_exchange(long_exchange)
+    short_exchange = await _normalize_exchange(short_exchange)
     data = await client.get("/prices/chart-data", params={
         "symbol": symbol,
         "long_exchange": long_exchange,
@@ -645,6 +681,7 @@ async def check_liquidity(
         position_size: Position size in USD for slippage estimate (default 1000)
     """
     await _require_paid()
+    exchange = await _normalize_exchange(exchange)
     data = await client.get(f"/liquidity/{exchange}", params={
         "symbol": symbol,
         "position_size": position_size,
@@ -696,6 +733,8 @@ async def analyze_pair(
         position_size: Your intended position size in USD (default 1000)
     """
     await _require_paid()
+    long_exchange = await _normalize_exchange(long_exchange)
+    short_exchange = await _normalize_exchange(short_exchange)
     import asyncio
 
     # Fetch everything in parallel
@@ -861,7 +900,8 @@ async def compare_exchanges(
         exchange_set.add(o["short_exchange"])
 
     if exchanges:
-        filter_set = {e.strip() for e in exchanges.split(",")}
+        mapping = await _get_exchange_map()
+        filter_set = {mapping.get(e.strip().lower(), e.strip()) for e in exchanges.split(",")}
         exchange_set = exchange_set & filter_set
         if not exchange_set:
             return f"None of [{exchanges}] list {symbol}. Available: {', '.join(sorted(exchange_rates.keys()))}"
