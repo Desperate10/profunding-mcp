@@ -942,6 +942,311 @@ async def compare_exchanges(
     return "\n".join(lines)
 
 
+# ─── Trading Tools (Phase 2) ─────────────────────────────────
+
+@mcp.tool()
+async def store_credentials(exchange: str, credentials: str) -> str:
+    """Store exchange credentials for AI trading. Encrypted with AES-256-GCM on the server.
+    [Requires paid API key]
+
+    SECURITY WARNING: Credentials pass through this conversation and may be logged
+    by your AI provider. Only provide agent/signer keys (trade-only, no withdrawal).
+    For maximum security, use the web form at profunding.pro/keys instead.
+
+    Args:
+        exchange: Exchange name. Supported: Hyperliquid, Lighter, Aster, Pacifica.
+            HIP-3 DEXes (TradeXYZ, DreamCash, etc.) use Hyperliquid credentials.
+        credentials: JSON string with exchange-specific fields:
+            Hyperliquid: {"wallet_address": "0x...", "agent_address": "0x...", "agent_private_key": "0x..."}
+            Lighter: {"api_private_key": "...", "api_public_key": "...", "account_index": 0}
+            Aster: {"wallet_address": "0x...", "signer_address": "0x...", "signer_private_key": "0x..."}
+            Pacifica: {"solana_address": "...", "agent_address": "...", "agent_private_key": "..."}
+    """
+    await _require_paid()
+    import json as _json
+    try:
+        creds_dict = _json.loads(credentials)
+    except _json.JSONDecodeError:
+        return "Error: credentials must be a valid JSON string."
+
+    try:
+        data = await client.post("/credentials", json={
+            "exchange": exchange,
+            "credentials": creds_dict,
+        })
+        return f"Credentials stored for {data.get('exchange', exchange)}."
+    except Exception as e:
+        return f"Failed to store credentials: {e}"
+
+
+@mcp.tool()
+async def list_credentials() -> str:
+    """List exchanges where you have stored credentials for AI trading.
+    [Requires paid API key]
+    """
+    await _require_paid()
+    try:
+        data = await client.get("/credentials")
+        if not data:
+            return "No credentials stored. Use store_credentials to add exchange keys."
+        lines = ["Stored credentials:"]
+        for c in data:
+            status = "enabled" if c["enabled"] else "DISABLED"
+            last = c.get("last_used_at", "never")
+            lines.append(f"  {c['exchange']} — {status}, last used: {last}")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Failed to list credentials: {e}"
+
+
+@mcp.tool()
+async def revoke_credentials(exchange: str) -> str:
+    """Remove stored credentials for an exchange. This stops AI trading on that exchange.
+    [Requires paid API key]
+
+    Args:
+        exchange: Exchange name to revoke credentials for.
+    """
+    await _require_paid()
+    try:
+        data = await client.delete(f"/credentials/{exchange}")
+        return f"Credentials revoked for {data.get('exchange', exchange)}."
+    except Exception as e:
+        return f"Failed to revoke credentials: {e}"
+
+
+@mcp.tool()
+async def revoke_all_credentials() -> str:
+    """KILL SWITCH: Remove ALL stored credentials and stop all AI trading immediately.
+    [Requires paid API key]
+    """
+    await _require_paid()
+    try:
+        data = await client.delete("/credentials")
+        return f"All credentials revoked. {data.get('count', 0)} exchanges removed."
+    except Exception as e:
+        return f"Failed to revoke all credentials: {e}"
+
+
+@mcp.tool()
+async def open_trade(
+    exchange: str,
+    symbol: str,
+    side: str,
+    size_usd: float,
+    leverage: int = 5,
+) -> str:
+    """Open a single trade on an exchange using stored credentials.
+    [Requires paid API key]
+
+    Args:
+        exchange: Exchange name (e.g. "Hyperliquid", "Lighter")
+        symbol: Trading pair (e.g. "ETH/USDC", "BTC/USDC")
+        side: "long" or "short"
+        size_usd: Position size in USD per leg
+        leverage: Leverage multiplier (default 5)
+    """
+    await _require_paid()
+    try:
+        data = await client.post("/mcp/trade/open", json={
+            "exchange": exchange,
+            "symbol": symbol,
+            "side": side,
+            "size_usd": size_usd,
+            "leverage": leverage,
+        })
+        return (
+            f"Order placed on {exchange}:\n"
+            f"  {side.upper()} {symbol}, ${size_usd} at {leverage}x\n"
+            f"  Order ID: {data.get('order_id')}\n"
+            f"  Status: {data.get('status')}\n"
+            f"  Fill price: {data.get('filled_price')}"
+        )
+    except Exception as e:
+        return f"Trade failed: {e}"
+
+
+@mcp.tool()
+async def close_trade(exchange: str, symbol: str, side: str) -> str:
+    """Close an open position on an exchange using stored credentials.
+    [Requires paid API key]
+
+    Args:
+        exchange: Exchange name
+        symbol: Trading pair (e.g. "ETH/USDC")
+        side: "long" or "short" — the side you want to close
+    """
+    await _require_paid()
+    try:
+        data = await client.post("/mcp/trade/close", json={
+            "exchange": exchange,
+            "symbol": symbol,
+            "side": side,
+        })
+        return (
+            f"Position closed on {exchange}:\n"
+            f"  {side.upper()} {symbol}\n"
+            f"  Status: {data.get('status')}\n"
+            f"  Fill price: {data.get('filled_price')}"
+        )
+    except Exception as e:
+        return f"Close failed: {e}"
+
+
+@mcp.tool()
+async def open_delta_neutral(
+    symbol: str,
+    long_exchange: str,
+    short_exchange: str,
+    size_usd: float = 1000,
+    leverage: int = 5,
+) -> str:
+    """Open a delta-neutral funding arbitrage position — long on one exchange, short on another.
+    Both legs are market orders. On partial failure, the successful leg is NOT auto-closed.
+    [Requires paid API key]
+
+    Args:
+        symbol: Trading pair (e.g. "ETH/USDC")
+        long_exchange: Exchange to go long on (the one paying you negative funding)
+        short_exchange: Exchange to go short on (the one paying you positive funding)
+        size_usd: Size per leg in USD (default 1000)
+        leverage: Leverage multiplier (default 5)
+    """
+    await _require_paid()
+    try:
+        data = await client.post("/mcp/trade/open-dn", json={
+            "symbol": symbol,
+            "long_exchange": long_exchange,
+            "short_exchange": short_exchange,
+            "size_usd": size_usd,
+            "leverage": leverage,
+        })
+
+        status = data.get("status", "unknown")
+        lines = [f"Delta-neutral position: {status.upper()}"]
+        lines.append(f"  Position ID: {data.get('position_id')}")
+        lines.append(f"  {symbol} — Long {long_exchange} / Short {short_exchange}")
+        lines.append(f"  Size: ${size_usd}/leg at {leverage}x")
+
+        if data.get("long_leg"):
+            ll = data["long_leg"]
+            lines.append(f"  Long: {ll.get('status')} @ {ll.get('filled_price')}")
+        if data.get("short_leg"):
+            sl = data["short_leg"]
+            lines.append(f"  Short: {sl.get('status')} @ {sl.get('filled_price')}")
+        if data.get("error"):
+            lines.append(f"  ⚠ {data['error']}")
+
+        return "\n".join(lines)
+    except Exception as e:
+        return f"DN open failed: {e}"
+
+
+@mcp.tool()
+async def close_delta_neutral(
+    symbol: str = "",
+    long_exchange: str = "",
+    short_exchange: str = "",
+    position_id: str = "",
+) -> str:
+    """Close a delta-neutral position (both legs). Provide either position_id or symbol+exchanges.
+    [Requires paid API key]
+
+    Args:
+        symbol: Trading pair (e.g. "ETH/USDC")
+        long_exchange: Exchange where you're long
+        short_exchange: Exchange where you're short
+        position_id: Server position ID (alternative to symbol+exchanges)
+    """
+    await _require_paid()
+    body = {}
+    if position_id:
+        body["position_id"] = position_id
+    else:
+        body["symbol"] = symbol
+        body["long_exchange"] = long_exchange
+        body["short_exchange"] = short_exchange
+
+    try:
+        data = await client.post("/mcp/trade/close-dn", json=body)
+
+        lines = [f"DN position closed: {data.get('status', 'unknown').upper()}"]
+        if data.get("pnl_usd") is not None:
+            lines.append(f"  PnL: ${data['pnl_usd']:.2f}")
+        if data.get("long_leg"):
+            ll = data["long_leg"]
+            lines.append(f"  Long close: {ll.get('status')} @ {ll.get('filled_price')}")
+        if data.get("short_leg"):
+            sl = data["short_leg"]
+            lines.append(f"  Short close: {sl.get('status')} @ {sl.get('filled_price')}")
+
+        return "\n".join(lines)
+    except Exception as e:
+        return f"DN close failed: {e}"
+
+
+@mcp.tool()
+async def get_positions(exchange: str = "") -> str:
+    """List open positions. If exchange specified, queries that DEX's live API.
+    Otherwise shows server-tracked delta-neutral positions.
+    [Requires paid API key]
+
+    Args:
+        exchange: Optional exchange name. If empty, shows DN positions from server.
+    """
+    await _require_paid()
+    try:
+        params = {}
+        if exchange:
+            params["exchange"] = exchange
+        data = await client.get("/mcp/trade/positions", params=params)
+
+        if not data:
+            return "No open positions."
+
+        lines = [f"Open positions ({len(data)}):"]
+        for p in data:
+            if "long_exchange" in p:
+                # DN position
+                lines.append(
+                    f"  {p['symbol']} — Long {p['long_exchange']} / Short {p['short_exchange']}\n"
+                    f"    Size: ${p['size_usd']}, Status: {p['status']}, "
+                    f"Opened: {p.get('opened_at', 'N/A')}"
+                )
+            else:
+                # Single exchange position
+                lines.append(
+                    f"  {p.get('exchange', exchange)}: {p['side'].upper()} {p['symbol']} "
+                    f"size={p['size']:.4f} entry={p['entry_price']:.4f} "
+                    f"pnl={p.get('unrealized_pnl', 0):.2f}"
+                )
+
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Failed to get positions: {e}"
+
+
+@mcp.tool()
+async def get_balance(exchange: str) -> str:
+    """Check your balance on an exchange using stored credentials.
+    [Requires paid API key]
+
+    Args:
+        exchange: Exchange name (e.g. "Hyperliquid", "Lighter")
+    """
+    await _require_paid()
+    try:
+        data = await client.get("/mcp/trade/balance", params={"exchange": exchange})
+        return (
+            f"Balance on {data.get('exchange', exchange)}:\n"
+            f"  Available: ${data.get('available', 0):.2f}\n"
+            f"  Locked: ${data.get('locked', 0):.2f}\n"
+            f"  Total: ${data.get('total', 0):.2f} {data.get('currency', 'USDC')}"
+        )
+    except Exception as e:
+        return f"Failed to get balance: {e}"
+
+
 # ─── Server entry point ──────────────────────────────────────
 
 def main():

@@ -50,6 +50,18 @@ class ProFundingClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def delete(self, path: str) -> Any:
+        """DELETE request to the API."""
+        resp = await self._client.delete(path)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def patch(self, path: str, json: Optional[dict] = None) -> Any:
+        """PATCH request to the API."""
+        resp = await self._client.patch(path, json=json)
+        resp.raise_for_status()
+        return resp.json()
+
     async def close(self):
         await self._client.aclose()
 
