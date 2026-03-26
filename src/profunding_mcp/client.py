@@ -38,28 +38,42 @@ class ProFundingClient:
     def is_paid(self) -> bool:
         return self._tier == "paid"
 
+    def _raise_with_detail(self, resp: httpx.Response) -> None:
+        """Raise an httpx.HTTPStatusError with the response body in the message."""
+        if resp.is_success:
+            return
+        try:
+            detail = resp.json().get("detail", resp.text)
+        except Exception:
+            detail = resp.text
+        raise httpx.HTTPStatusError(
+            f"{resp.status_code}: {detail}",
+            request=resp.request,
+            response=resp,
+        )
+
     async def get(self, path: str, params: Optional[dict] = None) -> Any:
         """GET request to the API."""
         resp = await self._client.get(path, params=params)
-        resp.raise_for_status()
+        self._raise_with_detail(resp)
         return resp.json()
 
     async def post(self, path: str, json: Optional[dict] = None) -> Any:
         """POST request to the API."""
         resp = await self._client.post(path, json=json)
-        resp.raise_for_status()
+        self._raise_with_detail(resp)
         return resp.json()
 
     async def delete(self, path: str) -> Any:
         """DELETE request to the API."""
         resp = await self._client.delete(path)
-        resp.raise_for_status()
+        self._raise_with_detail(resp)
         return resp.json()
 
     async def patch(self, path: str, json: Optional[dict] = None) -> Any:
         """PATCH request to the API."""
         resp = await self._client.patch(path, json=json)
-        resp.raise_for_status()
+        self._raise_with_detail(resp)
         return resp.json()
 
     async def close(self):
