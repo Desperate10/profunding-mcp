@@ -1251,6 +1251,103 @@ async def get_balance(exchange: str) -> str:
         return f"Failed to get balance: {e}"
 
 
+# ─── Phase 3: Monitoring Tools ───────────────────────────────
+
+
+@mcp.tool()
+async def watch_position(
+    symbol: str,
+    long_exchange: str,
+    short_exchange: str,
+    funding_flip_alert: bool = True,
+    min_apr_threshold: float = 0,
+    pnl_threshold_pct: float = 0,
+    max_duration_hours: int = 0,
+    auto_close: bool = False,
+    close_on_trigger: bool = False,
+) -> str:
+    """Set up backend monitoring for a delta-neutral position.
+    The system checks conditions every 60 seconds and can auto-close or alert via Telegram.
+    [Requires paid API key]
+
+    Args:
+        symbol: Trading pair (e.g. "ETH/USDC")
+        long_exchange: Exchange where the long position is held
+        short_exchange: Exchange where the short position is held
+        funding_flip_alert: Alert when net funding rate flips negative (default: true)
+        min_apr_threshold: Alert when APR drops below this value (0 = disabled)
+        pnl_threshold_pct: Alert when PnL drops below this % of margin (e.g. -5.0 for -5%, 0 = disabled)
+        max_duration_hours: Auto-alert after this many hours (0 = disabled)
+        auto_close: Enable automated position closing (requires stored credentials)
+        close_on_trigger: If true + auto_close, positions are closed automatically on trigger. If false, only alerts.
+    """
+    await _require_paid()
+    try:
+        data = await client.post("/mcp/trade/watch", json={
+            "symbol": symbol,
+            "long_exchange": long_exchange,
+            "short_exchange": short_exchange,
+            "funding_flip_alert": funding_flip_alert,
+            "min_apr_threshold": min_apr_threshold,
+            "pnl_threshold_pct": pnl_threshold_pct,
+            "max_duration_hours": max_duration_hours,
+            "auto_close": auto_close,
+            "close_on_trigger": close_on_trigger,
+        })
+
+        lines = [
+            f"Position watch created (ID: {data.get('watch_id', 'N/A')})",
+            f"  Pair: {data.get('symbol')} — Long {data.get('long_exchange')} / Short {data.get('short_exchange')}",
+            f"  Auto-close: {'enabled' if data.get('auto_close') else 'disabled'}",
+            f"  Close on trigger: {'yes' if data.get('close_on_trigger') else 'no (alert only)'}",
+            f"  Telegram linked: {'yes' if data.get('telegram_linked') else 'no (no TG alerts)'}",
+        ]
+        conditions = []
+        if funding_flip_alert:
+            conditions.append("funding flip")
+        if min_apr_threshold > 0:
+            conditions.append(f"APR < {min_apr_threshold}%")
+        if pnl_threshold_pct < 0:
+            conditions.append(f"PnL < {pnl_threshold_pct}%")
+        if max_duration_hours > 0:
+            conditions.append(f"duration > {max_duration_hours}h")
+        lines.append(f"  Conditions: {', '.join(conditions) if conditions else 'none'}")
+
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Failed to create position watch: {e}"
+
+
+@mcp.tool()
+async def get_alerts(active_only: bool = True) -> str:
+    """Get monitoring alerts for your watched positions.
+    Shows recent alerts with their type, details, and action taken.
+    [Requires paid API key]
+
+    Args:
+        active_only: If true, only show alerts for active watches (default: true)
+    """
+    await _require_paid()
+    try:
+        data = await client.get("/mcp/trade/alerts", params={"active_only": str(active_only).lower()})
+
+        if not data:
+            return "No alerts found."
+
+        lines = [f"Monitoring alerts ({len(data)}):"]
+        for a in data:
+            detail = a.get("detail", {})
+            detail_str = ", ".join(f"{k}={v}" for k, v in detail.items() if k != "close_result")
+            lines.append(
+                f"  [{a.get('created_at', 'N/A')}] {a.get('alert_type', 'unknown')}: "
+                f"{detail_str} — {a.get('action_taken', 'pending')}"
+            )
+
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Failed to get alerts: {e}"
+
+
 # ─── Server entry point ──────────────────────────────────────
 
 def main():
