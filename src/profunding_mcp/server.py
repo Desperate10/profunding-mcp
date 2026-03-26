@@ -420,18 +420,22 @@ async def get_record_roi(period: str = "day") -> str:
 
 
 @mcp.tool()
-async def get_still_paying() -> str:
-    """Pairs above 50% APR for 24h+ that are still active right now.
+async def get_still_paying(min_hours: int = 24) -> str:
+    """Pairs above 50% APR for N hours+ that are still active right now.
     [Requires paid API key]
+
+    Args:
+        min_hours: Minimum consecutive hours above 50% APR (default 24, min 6)
     """
     await _require_paid()
-    data = await client.get("/social/run/still_paying")
+    min_hours = max(6, min_hours)
+    data = await client.get(f"/social/run/still_paying?min_hours={min_hours}")
     results = data.get("data", [])
 
     if not results:
-        return "No pairs currently on a 24h+ streak above 50% APR."
+        return f"No pairs currently on a {min_hours}h+ streak above 50% APR."
 
-    lines = ["Active streaks (50%+ APR for 24h+):\n"]
+    lines = [f"Active streaks (50%+ APR for {min_hours}h+):\n"]
     for r in results[:10]:
         lines.append(
             f"  {r.get('symbol', '?')} — {r.get('long_exchange', '?')}/{r.get('short_exchange', '?')} — "
