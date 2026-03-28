@@ -111,6 +111,7 @@ async def get_opportunities(
     pre_tge_only: bool = False,
 ) -> str:
     """Get live funding rate arbitrage opportunities across all DEXes.
+    [Free]
 
     Args:
         min_apr: Minimum net APR to filter (default 0)
@@ -150,7 +151,9 @@ async def get_opportunities(
 
 @mcp.tool()
 async def get_exchanges() -> str:
-    """List all connected DEXes with their status and funding interval."""
+    """List all connected DEXes with their status and funding interval.
+    [Free]
+    """
     data = await client.get("/exchanges")
     exchanges = data.get("exchanges", [])
 
@@ -172,6 +175,7 @@ async def get_historical_rates(
     days: int = 7,
 ) -> str:
     """Get historical funding rates for a symbol on a specific exchange.
+    [Free]
 
     Args:
         symbol: Trading pair (e.g. "ETH/USDC")
@@ -212,6 +216,7 @@ async def run_backtest(
     days: int = 7,
 ) -> str:
     """Backtest a delta-neutral funding arbitrage trade with historical data.
+    [Free]
 
     Args:
         symbol: Trading pair (e.g. "ETH/USDC")
@@ -269,6 +274,7 @@ async def get_rate_chart_data(
     days: int = 30,
 ) -> str:
     """Get funding rate spread chart data for a pair across two exchanges.
+    [Free]
 
     Args:
         symbol: Trading pair (e.g. "ETH/USDC")
@@ -316,9 +322,8 @@ async def get_rate_chart_data(
 async def get_pair_intelligence() -> str:
     """Get risk scores and backtested APR for all opportunity pairs.
     Pre-computed every 5 minutes. Includes spread risk, 30d average, smart ranking.
-    [Requires paid API key]
+    [Free]
     """
-    await _require_paid()
     data = await client.get("/analytics/pair-intelligence")
 
     pairs = data.get("pairs", {})
@@ -355,7 +360,7 @@ async def get_price_spread_data(
     days: int = 7,
 ) -> str:
     """Get hourly mark prices and spread between two exchanges for price risk analysis.
-    [Requires paid API key]
+    [Free]
 
     Args:
         symbol: Trading pair (e.g. "ETH/USDC")
@@ -363,7 +368,6 @@ async def get_price_spread_data(
         short_exchange: Second exchange
         days: Lookback period (1-30, default 7)
     """
-    await _require_paid()
     long_exchange = await _normalize_exchange(long_exchange)
     short_exchange = await _normalize_exchange(short_exchange)
     data = await client.get("/prices/chart-data", params={
@@ -397,12 +401,11 @@ async def get_price_spread_data(
 @mcp.tool()
 async def get_record_roi(period: str = "day") -> str:
     """Best single trade by ROI in a given period.
-    [Requires paid API key]
+    [Free]
 
     Args:
         period: "day" for last 24h or "week" for last 7 days
     """
-    await _require_paid()
     query = f"record_roi_{period}"
     data = await client.get(f"/social/run/{query}")
     result = data.get("data", {})
@@ -422,12 +425,11 @@ async def get_record_roi(period: str = "day") -> str:
 @mcp.tool()
 async def get_still_paying(min_hours: int = 24) -> str:
     """Pairs above 50% APR for N hours+ that are still active right now.
-    [Requires paid API key]
+    [Free]
 
     Args:
         min_hours: Minimum consecutive hours above 50% APR (default 24, min 6)
     """
-    await _require_paid()
     min_hours = max(6, min_hours)
     data = await client.get(f"/social/run/still_paying?min_hours={min_hours}")
     results = data.get("data", [])
@@ -448,12 +450,11 @@ async def get_still_paying(min_hours: int = 24) -> str:
 @mcp.tool()
 async def get_top_holders(days: int = 7) -> str:
     """Top pairs holding 50%+ APR longest.
-    [Requires paid API key]
+    [Free]
 
     Args:
         days: Lookback period — 7 or 14 days
     """
-    await _require_paid()
     query = "top_holders" if days <= 7 else "top_holders_14d"
     data = await client.get(f"/social/run/{query}")
     results = data.get("data", [])
@@ -474,9 +475,8 @@ async def get_top_holders(days: int = 7) -> str:
 @mcp.tool()
 async def get_momentum_movers() -> str:
     """Biggest funding spread jumps in the last 6 hours vs prior 6 hours.
-    [Requires paid API key]
+    [Free]
     """
-    await _require_paid()
     data = await client.get("/social/run/momentum_movers")
     results = data.get("data", [])
 
@@ -496,12 +496,11 @@ async def get_momentum_movers() -> str:
 @mcp.tool()
 async def get_weekly_recap(days: int = 7) -> str:
     """Weekly recap: best ROI pairs, best DEX combos, most stable pair.
-    [Requires paid API key]
+    [Free]
 
     Args:
         days: Period — 7 or 14 days
     """
-    await _require_paid()
     query = "weekly_recap" if days <= 7 else "weekly_recap_14d"
     data = await client.get(f"/social/run/{query}")
     result = data.get("data", {})
@@ -529,12 +528,11 @@ async def get_weekly_recap(days: int = 7) -> str:
 @mcp.tool()
 async def get_unbroken_streaks(mode: str = "top5") -> str:
     """Consecutive hours above APR threshold — multiple viewing modes.
-    [Requires paid API key]
+    [Free]
 
     Args:
         mode: "spotlight" (random long streak), "top5" (longest 5), "fresh" (started <24h ago), "elite" (100%+ APR)
     """
-    await _require_paid()
     query_map = {
         "spotlight": "unbroken_streak",
         "top5": "unbroken_streak_top5",
@@ -564,9 +562,8 @@ async def get_unbroken_streaks(mode: str = "top5") -> str:
 @mcp.tool()
 async def get_live_alpha() -> str:
     """Top 5 live funding rate arbitrage opportunities, deduplicated by symbol.
-    [Requires paid API key]
+    [Free]
     """
-    await _require_paid()
     data = await client.get("/social/run/live_alpha")
     results = data.get("data", [])
 
@@ -592,14 +589,13 @@ async def find_best_trade(
     """Find the best delta-neutral trade you can open RIGHT NOW.
     Combines live funding rates + 30d backtest + spread risk + real-time order book depth.
     Returns fully-analyzed, tradeable opportunities ranked by composite risk/reward score.
-    [Requires paid API key]
+    [Free]
 
     Args:
         position_size: How much USD you want to deploy (default 1000)
         min_apr: Minimum net APR filter (default 30)
         limit: Max results (default 5)
     """
-    await _require_paid()
     data = await client.get("/smart-opportunities", params={
         "position_size": position_size,
         "min_apr": min_apr,
@@ -639,14 +635,13 @@ async def get_smart_opportunities(
     """Get opportunities ranked by composite score (APR × stability × liquidity).
     Unlike get_opportunities, this checks real order book depth and filters out
     pairs you can't actually trade at your position size.
-    [Requires paid API key]
+    [Free]
 
     Args:
         position_size: Position size in USD (default 1000)
         min_apr: Minimum net APR (default 50)
         limit: Max results (default 10)
     """
-    await _require_paid()
     data = await client.get("/smart-opportunities", params={
         "position_size": position_size,
         "min_apr": min_apr,
@@ -677,14 +672,13 @@ async def check_liquidity(
 ) -> str:
     """Check real-time order book liquidity for a symbol on a specific exchange.
     Returns bid-ask spread, depth analysis at multiple position sizes, and slippage estimates.
-    [Requires paid API key]
+    [Free]
 
     Args:
         exchange: Exchange name (e.g. "Hyperliquid")
         symbol: Trading pair (e.g. "ETH/USDC")
         position_size: Position size in USD for slippage estimate (default 1000)
     """
-    await _require_paid()
     exchange = await _normalize_exchange(exchange)
     data = await client.get(f"/liquidity/{exchange}", params={
         "symbol": symbol,
@@ -728,7 +722,7 @@ async def analyze_pair(
     """Full end-to-end analysis of a specific delta-neutral pair.
     Combines: current funding rates, 7d backtest, pair intelligence (30d risk/stability),
     live order book depth on both legs, and price spread risk — all in one call.
-    [Requires paid API key]
+    [Free]
 
     Args:
         symbol: Trading pair (e.g. "ETH/USDC")
@@ -736,7 +730,6 @@ async def analyze_pair(
         short_exchange: Exchange to go short on
         position_size: Your intended position size in USD (default 1000)
     """
-    await _require_paid()
     long_exchange = await _normalize_exchange(long_exchange)
     short_exchange = await _normalize_exchange(short_exchange)
     import asyncio
@@ -875,13 +868,12 @@ async def compare_exchanges(
 ) -> str:
     """Compare the same symbol across multiple exchanges — funding rates, spread, depth, volume.
     Helps decide which exchange to use for each leg of a delta-neutral trade.
-    [Requires paid API key]
+    [Free]
 
     Args:
         symbol: Trading pair (e.g. "ETH/USDC")
         exchanges: Comma-separated exchange names to compare (e.g. "Hyperliquid,dYdX,Aster"). If empty, shows all exchanges that list this symbol.
     """
-    await _require_paid()
     import asyncio
 
     # Get opportunities to find which exchanges list this symbol
@@ -946,12 +938,12 @@ async def compare_exchanges(
     return "\n".join(lines)
 
 
-# ─── Trading Tools (Phase 2) ─────────────────────────────────
+# ─── Trading Tools (Free) ────────────────────────────────────
 
 @mcp.tool()
 async def store_credentials(exchange: str, credentials: str) -> str:
     """Store exchange credentials for AI trading. Encrypted with AES-256-GCM on the server.
-    [Requires paid API key]
+    [Free]
 
     SECURITY WARNING: Credentials pass through this conversation and may be logged
     by your AI provider. Only provide agent/signer keys (trade-only, no withdrawal).
@@ -966,7 +958,6 @@ async def store_credentials(exchange: str, credentials: str) -> str:
             Aster: {"wallet_address": "0x...", "signer_address": "0x...", "signer_private_key": "0x..."}
             Pacifica: {"solana_address": "...", "agent_address": "...", "agent_private_key": "..."}
     """
-    await _require_paid()
     import json as _json
     try:
         creds_dict = _json.loads(credentials)
@@ -986,9 +977,8 @@ async def store_credentials(exchange: str, credentials: str) -> str:
 @mcp.tool()
 async def list_credentials() -> str:
     """List exchanges where you have stored credentials for AI trading.
-    [Requires paid API key]
+    [Free]
     """
-    await _require_paid()
     try:
         data = await client.get("/credentials")
         if not data:
@@ -1006,12 +996,11 @@ async def list_credentials() -> str:
 @mcp.tool()
 async def revoke_credentials(exchange: str) -> str:
     """Remove stored credentials for an exchange. This stops AI trading on that exchange.
-    [Requires paid API key]
+    [Free]
 
     Args:
         exchange: Exchange name to revoke credentials for.
     """
-    await _require_paid()
     try:
         data = await client.delete(f"/credentials/{exchange}")
         return f"Credentials revoked for {data.get('exchange', exchange)}."
@@ -1022,9 +1011,8 @@ async def revoke_credentials(exchange: str) -> str:
 @mcp.tool()
 async def revoke_all_credentials() -> str:
     """KILL SWITCH: Remove ALL stored credentials and stop all AI trading immediately.
-    [Requires paid API key]
+    [Free]
     """
-    await _require_paid()
     try:
         data = await client.delete("/credentials")
         return f"All credentials revoked. {data.get('count', 0)} exchanges removed."
@@ -1041,7 +1029,7 @@ async def open_trade(
     leverage: int = 5,
 ) -> str:
     """Open a single trade on an exchange using stored credentials.
-    [Requires paid API key]
+    [Free]
 
     Args:
         exchange: Exchange name (e.g. "Hyperliquid", "Lighter")
@@ -1050,7 +1038,6 @@ async def open_trade(
         size_usd: Position size in USD per leg
         leverage: Leverage multiplier (default 5)
     """
-    await _require_paid()
     try:
         data = await client.post("/mcp/trade/open", json={
             "exchange": exchange,
@@ -1073,14 +1060,13 @@ async def open_trade(
 @mcp.tool()
 async def close_trade(exchange: str, symbol: str, side: str) -> str:
     """Close an open position on an exchange using stored credentials.
-    [Requires paid API key]
+    [Free]
 
     Args:
         exchange: Exchange name
         symbol: Trading pair (e.g. "ETH/USDC")
         side: "long" or "short" — the side you want to close
     """
-    await _require_paid()
     try:
         data = await client.post("/mcp/trade/close", json={
             "exchange": exchange,
@@ -1107,7 +1093,7 @@ async def open_delta_neutral(
 ) -> str:
     """Open a delta-neutral funding arbitrage position — long on one exchange, short on another.
     Both legs are market orders. On partial failure, the successful leg is NOT auto-closed.
-    [Requires paid API key]
+    [Free]
 
     Args:
         symbol: Trading pair (e.g. "ETH/USDC")
@@ -1116,7 +1102,6 @@ async def open_delta_neutral(
         size_usd: Size per leg in USD (default 1000)
         leverage: Leverage multiplier (default 5)
     """
-    await _require_paid()
     try:
         data = await client.post("/mcp/trade/open-dn", json={
             "symbol": symbol,
@@ -1154,7 +1139,7 @@ async def close_delta_neutral(
     position_id: str = "",
 ) -> str:
     """Close a delta-neutral position (both legs). Provide either position_id or symbol+exchanges.
-    [Requires paid API key]
+    [Free]
 
     Args:
         symbol: Trading pair (e.g. "ETH/USDC")
@@ -1162,7 +1147,6 @@ async def close_delta_neutral(
         short_exchange: Exchange where you're short
         position_id: Server position ID (alternative to symbol+exchanges)
     """
-    await _require_paid()
     body = {}
     if position_id:
         body["position_id"] = position_id
@@ -1193,12 +1177,11 @@ async def close_delta_neutral(
 async def get_positions(exchange: str = "") -> str:
     """List open positions. If exchange specified, queries that DEX's live API.
     Otherwise shows server-tracked delta-neutral positions.
-    [Requires paid API key]
+    [Free]
 
     Args:
         exchange: Optional exchange name. If empty, shows DN positions from server.
     """
-    await _require_paid()
     try:
         params = {}
         if exchange:
@@ -1233,12 +1216,11 @@ async def get_positions(exchange: str = "") -> str:
 @mcp.tool()
 async def get_balance(exchange: str) -> str:
     """Check your balance on an exchange using stored credentials.
-    [Requires paid API key]
+    [Free]
 
     Args:
         exchange: Exchange name (e.g. "Hyperliquid", "Lighter")
     """
-    await _require_paid()
     try:
         data = await client.get("/mcp/trade/balance", params={"exchange": exchange})
         return (
@@ -1251,7 +1233,7 @@ async def get_balance(exchange: str) -> str:
         return f"Failed to get balance: {e}"
 
 
-# ─── Phase 3: Monitoring Tools ───────────────────────────────
+# ─── Monitoring Tools (Free) ─────────────────────────────────
 
 
 @mcp.tool()
@@ -1268,7 +1250,7 @@ async def watch_position(
 ) -> str:
     """Set up backend monitoring for a delta-neutral position.
     The system checks conditions every 60 seconds and can auto-close or alert via Telegram.
-    [Requires paid API key]
+    [Free]
 
     Args:
         symbol: Trading pair (e.g. "ETH/USDC")
@@ -1281,7 +1263,6 @@ async def watch_position(
         auto_close: Enable automated position closing (requires stored credentials)
         close_on_trigger: If true + auto_close, positions are closed automatically on trigger. If false, only alerts.
     """
-    await _require_paid()
     try:
         data = await client.post("/mcp/trade/watch", json={
             "symbol": symbol,
@@ -1322,12 +1303,11 @@ async def watch_position(
 async def get_alerts(active_only: bool = True) -> str:
     """Get monitoring alerts for your watched positions.
     Shows recent alerts with their type, details, and action taken.
-    [Requires paid API key]
+    [Free]
 
     Args:
         active_only: If true, only show alerts for active watches (default: true)
     """
-    await _require_paid()
     try:
         data = await client.get("/mcp/trade/alerts", params={"active_only": str(active_only).lower()})
 
