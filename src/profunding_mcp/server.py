@@ -485,9 +485,13 @@ async def get_momentum_movers() -> str:
 
     lines = ["Momentum movers (last 6h):\n"]
     for r in results[:10]:
+        cur = r.get("current_apr", 0)
+        prev = r.get("prev_apr", 0)
+        jump = r.get("jump", 0)
+        arrow = "↑" if jump > 0 else "→"
         lines.append(
             f"  {r.get('symbol', '?')} — {r.get('long_exchange', '?')}/{r.get('short_exchange', '?')} — "
-            f"{r.get('change', 0):+.1f}% APR change"
+            f"{prev:.0f}% → {cur:.0f}% APR ({arrow}{jump:+.0f}%)"
         )
 
     return "\n".join(lines)
