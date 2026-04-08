@@ -1228,12 +1228,17 @@ async def get_balance(exchange: str) -> str:
     """
     try:
         data = await client.get("/mcp/trade/balance", params={"exchange": exchange})
-        return (
-            f"Balance on {data.get('exchange', exchange)}:\n"
-            f"  Available: ${data.get('available', 0):.2f}\n"
-            f"  Locked: ${data.get('locked', 0):.2f}\n"
-            f"  Total: ${data.get('total', 0):.2f} {data.get('currency', 'USDC')}"
-        )
+        lines = [f"Balance on {data.get('exchange', exchange)}:"]
+        spot = data.get("spot_balances", [])
+        if spot:
+            for s in spot:
+                lines.append(f"  {s['coin']}: ${s['available']:.2f}")
+        else:
+            lines.append(f"  {data.get('currency', 'USDC')}: ${data.get('available', 0):.2f}")
+        if data.get('locked', 0) > 0:
+            lines.append(f"  Locked (margin): ${data['locked']:.2f}")
+        lines.append(f"  Total: ${data.get('total', 0):.2f}")
+        return "\n".join(lines)
     except Exception as e:
         return f"Failed to get balance: {e}"
 
