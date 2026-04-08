@@ -1238,6 +1238,37 @@ async def get_balance(exchange: str) -> str:
         return f"Failed to get balance: {e}"
 
 
+@mcp.tool()
+async def convert_stablecoin(
+    from_coin: str,
+    to_coin: str,
+    amount: float,
+) -> str:
+    """Convert stablecoins on Hyperliquid (USDC <-> USDE/USDT0/USDH).
+    Uses stored credentials — agent-signed, no wallet popup needed.
+    Useful for moving collateral between HIP-3 DEXes that use different stablecoins.
+    [Free]
+
+    Args:
+        from_coin: Source stablecoin (e.g. "USDC", "USDE", "USDT0", "USDH")
+        to_coin: Target stablecoin (e.g. "USDE", "USDC")
+        amount: Amount to convert (in from_coin units)
+    """
+    try:
+        data = await client.post("/mcp/trade/convert", json={
+            "from_coin": from_coin,
+            "to_coin": to_coin,
+            "amount": amount,
+        })
+        return (
+            f"Converted {from_coin} → {to_coin}:\n"
+            f"  Filled: {data.get('filled_size', '0')} {to_coin}\n"
+            f"  Avg price: {data.get('avg_price', '0')}"
+        )
+    except Exception as e:
+        return f"Convert failed: {e}"
+
+
 # ─── Monitoring Tools (Free) ─────────────────────────────────
 
 
