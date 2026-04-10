@@ -957,8 +957,7 @@ async def store_credentials(exchange: str, credentials: str) -> str:
         exchange: Exchange name. Supported: Hyperliquid, Lighter, Aster, Pacifica.
             HIP-3 DEXes (TradeXYZ, DreamCash, etc.) use Hyperliquid credentials.
         credentials: JSON string with exchange-specific fields:
-            Hyperliquid: {"wallet_address": "0x...", "agent_address": "0x...", "agent_private_key": "0x...", "builder": "defiapp"}
-              (add "builder": "defiapp" if you authenticated via defi.app — required for correct builder fee signing)
+            Hyperliquid: {"wallet_address": "0x...", "agent_address": "0x...", "agent_private_key": "0x..."}
             Lighter: {"api_private_key": "...", "api_public_key": "...", "account_index": 0}
             Aster: {"wallet_address": "0x...", "signer_address": "0x...", "signer_private_key": "0x..."}
             Pacifica: {"solana_address": "...", "agent_address": "...", "agent_private_key": "..."}
