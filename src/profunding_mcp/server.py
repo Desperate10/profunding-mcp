@@ -1287,6 +1287,8 @@ async def watch_position(
     max_duration_hours: int = 0,
     auto_close: bool = False,
     close_on_trigger: bool = False,
+    spread_divergence_alert: bool = False,
+    spread_divergence_max_drift_pct: float = 10.0,
 ) -> str:
     """Set up backend monitoring for a delta-neutral position.
     The system checks conditions every 60 seconds and can auto-close or alert via Telegram.
@@ -1302,6 +1304,8 @@ async def watch_position(
         max_duration_hours: Auto-alert after this many hours (0 = disabled)
         auto_close: Enable automated position closing (requires stored credentials)
         close_on_trigger: If true + auto_close, positions are closed automatically on trigger. If false, only alerts.
+        spread_divergence_alert: Emergency alert when the absolute spread between long and short legs widens past entry by more than spread_divergence_max_drift_pct (default: false). Captures entry spread at watch creation; fires after 3 consecutive cycles of breach.
+        spread_divergence_max_drift_pct: Threshold in absolute spread-percent points (default: 10). Range 1-50. Only relevant when spread_divergence_alert=true.
     """
     try:
         data = await client.post("/mcp/trade/watch", json={
@@ -1314,6 +1318,8 @@ async def watch_position(
             "max_duration_hours": max_duration_hours,
             "auto_close": auto_close,
             "close_on_trigger": close_on_trigger,
+            "spread_divergence_alert": spread_divergence_alert,
+            "spread_divergence_max_drift_pct": spread_divergence_max_drift_pct,
         })
 
         lines = [
@@ -1332,11 +1338,205 @@ async def watch_position(
             conditions.append(f"PnL < {pnl_threshold_pct}%")
         if max_duration_hours > 0:
             conditions.append(f"duration > {max_duration_hours}h")
+        if spread_divergence_alert:
+            conditions.append(f"spread divergence > {spread_divergence_max_drift_pct}pp")
         lines.append(f"  Conditions: {', '.join(conditions) if conditions else 'none'}")
 
         return "\n".join(lines)
     except Exception as e:
         return f"Failed to create position watch: {e}"
+
+
+# ─── Find-the-Exit Tools (Free) ──────────────────────────────
+
+
+def _format_seconds(seconds: int) -> str:
+    if seconds < 0:
+        return "n/a"
+    if seconds < 60:
+        return f"{seconds}s"
+    if seconds < 3600:
+        return f"{seconds // 60}m"
+    h, m = seconds // 3600, (seconds % 3600) // 60
+    return f"{h}h{m}m" if m else f"{h}h"
+
+
+@mcp.tool()
+async def find_exit_preview(
+    symbol: str,
+    long_exchange: str,
+    short_exchange: str,
+) -> str:
+    """Forecast a Find-the-Exit job before submitting.
+
+    Returns the position's current net PnL, funding accrued so far,
+    estimated exit cost (book walk), expected next-tick PnL, and a
+    days-to-break-even forecast at the current funding rate. Useful for
+    deciding whether the job will fire immediately (PnL>0) or run for a
+    long time before favorable conditions emerge.
+    [Free]
+
+    Args:
+        symbol: Trading pair (e.g. "ETH/USDC")
+        long_exchange: Exchange where the long leg sits
+        short_exchange: Exchange where the short leg sits
+    """
+    try:
+        data = await client.post("/find-exit/preview", json={
+            "symbol": symbol,
+            "long_exchange": long_exchange,
+            "short_exchange": short_exchange,
+        })
+
+        net_pnl = data.get("net_pnl_usd", 0)
+        funding_accrued = data.get("funding_accrued_usd", 0)
+        exit_cost = data.get("estimated_exit_cost_usd", 0)
+        next_tick = data.get("expected_next_tick_usd", 0)
+        secs_to_tick = data.get("seconds_to_next_funding_tick", -1)
+        forecast_days = data.get("forecast_days_to_break_even")
+
+        lines = [
+            f"Find-the-Exit forecast — {symbol} ({long_exchange}/{short_exchange}):",
+            f"  Current net PnL:    ${net_pnl:+.2f}",
+            f"  Funding accrued:    ${funding_accrued:+.2f}",
+            f"  Exit cost (now):    ${-exit_cost:.2f}",
+            f"  Next tick:          ${next_tick:+.2f} in {_format_seconds(secs_to_tick)}",
+        ]
+        if net_pnl > 0:
+            lines.append("  → Already favorable. First slice fires on next poll (~5s).")
+        elif forecast_days is not None:
+            lines.append(f"  → Estimated days to break even: {forecast_days:.1f}d at current rate")
+        else:
+            lines.append("  → No funding income at current rate. Job will rely on book/PnL drift.")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Find-the-Exit preview failed: {e}"
+
+
+@mcp.tool()
+async def find_exit_start(
+    symbol: str,
+    long_exchange: str,
+    short_exchange: str,
+    max_wait_hours: float | None = None,
+) -> str:
+    """Start a Find-the-Exit job — backend continuously slices the position
+    out at favorable moments (PnL ≥ adaptive_target with deep enough book).
+
+    Adaptive target: 50% of the position's lifetime peak per-unit price-PnL,
+    bootstrapped from PositionTick history. Decays toward 0 as the deadline
+    approaches via concave curve. Without a deadline, ratio stays constant
+    at 50% (Scenario A: no urgency).
+
+    Deadline = soonest of (started_at + max_wait_hours, next_negative_tick - 60s).
+    If no deadline, only the funding-tick safety stop applies.
+    Soft Telegram pings at 4h and 12h elapsed. Cancel via find_exit_cancel.
+    [Free]
+
+    Args:
+        symbol: Trading pair (e.g. "ETH/USDC")
+        long_exchange: Exchange where the long leg sits
+        short_exchange: Exchange where the short leg sits
+        max_wait_hours: Optional user deadline in hours (range 0.1–720).
+            If set, target decays from 50% → 0 across this window. If
+            unset, deadline auto-derived from next-negative-tick (or none
+            when funding stays positive).
+    """
+    try:
+        body = {
+            "symbol": symbol,
+            "long_exchange": long_exchange,
+            "short_exchange": short_exchange,
+        }
+        if max_wait_hours is not None:
+            body["max_wait_hours"] = max_wait_hours
+        data = await client.post("/find-exit/start", json=body)
+        lines = [
+            f"Find-the-Exit started (job {data.get('id')}):",
+            f"  Pair: {data.get('symbol')} ({data.get('long_exchange')}/{data.get('short_exchange')})",
+            f"  Initial size: long {data.get('initial_long_size')}, short {data.get('initial_short_size')}",
+            f"  Status: {data.get('status')}",
+            f"  Peak per-unit: {float(data.get('max_price_pnl_per_unit_seen', 0)):.6f}",
+        ]
+        if data.get("target_per_unit_now") is not None:
+            lines.append(f"  Target per-unit now: {float(data.get('target_per_unit_now')):.6f}")
+        if data.get("effective_ratio_now") is not None:
+            lines.append(f"  Effective ratio: {float(data.get('effective_ratio_now')) * 100:.1f}%")
+        if data.get("deadline_at"):
+            lines.append(f"  Deadline at: {data.get('deadline_at')}")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Failed to start Find-the-Exit: {e}"
+
+
+@mcp.tool()
+async def find_exit_status(job_id: str) -> str:
+    """Get the current state of a Find-the-Exit job and its fill history.
+    [Free]
+
+    Args:
+        job_id: UUID returned by find_exit_start
+    """
+    try:
+        data = await client.get(f"/find-exit/jobs/{job_id}")
+        job = data.get("job", {})
+        fills = data.get("fills", [])
+        initial = (float(job.get("initial_long_size", 0)) + float(job.get("initial_short_size", 0))) / 2
+        remaining = (float(job.get("remaining_long_size", 0)) + float(job.get("remaining_short_size", 0))) / 2
+        pct_filled = (1 - remaining / initial) * 100 if initial > 0 else 0
+
+        lines = [
+            f"Find-the-Exit job {job_id}:",
+            f"  Status:           {job.get('status')}",
+            f"  Pair:             {job.get('symbol')} ({job.get('long_exchange')}/{job.get('short_exchange')})",
+            f"  Filled:           {pct_filled:.0f}% ({job.get('fills_count')} slices)",
+            f"  Total filled:     ${float(job.get('total_filled_usd', 0)):.2f}",
+            f"  Realised PnL:     ${float(job.get('realised_pnl_usd', 0)):+.2f}",
+        ]
+        # v1.1 — gate transparency.
+        peak = float(job.get("max_price_pnl_per_unit_seen", 0))
+        if peak > 0:
+            lines.append(f"  Peak per-unit:    {peak:.6f}")
+            target = job.get("target_per_unit_now")
+            ratio = job.get("effective_ratio_now")
+            if target is not None and ratio is not None:
+                lines.append(
+                    f"  Target per-unit:  {float(target):.6f} "
+                    f"({float(ratio) * 100:.1f}% of peak)"
+                )
+        if job.get("deadline_at"):
+            lines.append(f"  Deadline at:      {job.get('deadline_at')}")
+        if job.get("exit_reason"):
+            lines.append(f"  Exit reason:      {job.get('exit_reason')}")
+        if job.get("error_message"):
+            lines.append(f"  Error:            {job.get('error_message')}")
+        if fills:
+            last = fills[-1]
+            lines.append(
+                f"  Last slice:       #{last.get('slice_index')} "
+                f"L@{float(last.get('long_avg_price', 0)):.4f} "
+                f"S@{float(last.get('short_avg_price', 0)):.4f} "
+                f"PnL ${float(last.get('slice_pnl_usd', 0)):+.2f}"
+            )
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Failed to get Find-the-Exit status: {e}"
+
+
+@mcp.tool()
+async def find_exit_cancel(job_id: str) -> str:
+    """Cancel a running Find-the-Exit job. Already-filled slices are not rolled
+    back — only future slicing stops.
+    [Free]
+
+    Args:
+        job_id: UUID of the job to cancel
+    """
+    try:
+        data = await client.post(f"/find-exit/jobs/{job_id}/cancel")
+        return f"Cancel signal sent. Status now: {data.get('status')}"
+    except Exception as e:
+        return f"Failed to cancel: {e}"
 
 
 @mcp.tool()
