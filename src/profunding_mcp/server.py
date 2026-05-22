@@ -223,7 +223,7 @@ async def run_backtest(
         long_exchange: Exchange to go long on
         short_exchange: Exchange to go short on
         position_size: Position size in USD (default 1000)
-        days: Backtest period in days (1-90, default 7)
+        days: Backtest period in days (1-30, default 7)
     """
     long_exchange = await _normalize_exchange(long_exchange)
     short_exchange = await _normalize_exchange(short_exchange)
@@ -280,7 +280,7 @@ async def get_rate_chart_data(
         symbol: Trading pair (e.g. "ETH/USDC")
         long_exchange: First exchange
         short_exchange: Second exchange
-        days: Lookback period (1-90, default 30)
+        days: Lookback period (1-30, default 30)
     """
     long_exchange = await _normalize_exchange(long_exchange)
     short_exchange = await _normalize_exchange(short_exchange)
