@@ -1,30 +1,23 @@
 # ProFunding MCP Server
 
-MCP server for [ProFunding](https://profunding.pro) — funding rate arbitrage across 20+ perpetual DEXes, with AI-driven trading.
+Trade funding rate arbitrage across 20+ perpetual DEXes from your AI assistant — find opportunities, open delta-neutral positions, supervise them to optimal exit. Backed by [ProFunding](https://profunding.pro).
 
-Analyze opportunities, check liquidity, run backtests, manage credentials, open and close delta-neutral positions, and supervise them with optimal-exit search — all directly from your AI assistant.
-
-## Installation
+## Quick start
 
 ```bash
 pip install profunding-mcp
-```
-
-## Setup
-
-### Get a free API key
-
-Most tools (trading, account, find-exit, deep analytics) require an API key. Keys are **free** at [profunding.pro](https://profunding.pro) — sign up takes seconds, no credit card. Market-data and backtest tools work without a key.
-
-### Claude Code
-
-With a key (recommended — unlocks the full toolset):
-
-```bash
 claude mcp add profunding profunding-mcp -e PROFUNDING_API_KEY=pfk_your_key_here
 ```
 
-Without a key (market-data tools only):
+Free API key at [profunding.pro](https://profunding.pro). Market-data tools work without one.
+
+## Setup
+
+### About the API key
+
+Most tools (trading, account, find-exit, deep analytics) need an API key. Keys are **free** at [profunding.pro](https://profunding.pro) — sign up takes seconds, no credit card. Market-data and backtest tools work without one.
+
+### Claude Code without a key (market-data only)
 
 ```bash
 claude mcp add profunding profunding-mcp
@@ -53,9 +46,9 @@ Add to your `claude_desktop_config.json`:
 |----------|----------|-------------|
 | `PROFUNDING_API_KEY` | For most tools | Free key from [profunding.pro](https://profunding.pro). Trading, account, find-exit, and deep analytics need one; market-data tools work without one. |
 
-### Skip permission prompts on trade tools (Claude Code)
+### Auto-approve trade tools (Claude Code)
 
-Claude Code asks for confirmation before each call to a trade tool. To skip the prompts on a project, add the trade allowlist to `.claude/settings.local.json` in that project's root (or `~/.claude/settings.json` for global):
+Claude Code asks for confirmation before each call to a trade tool. To approve them once per project, add the trade allowlist to `.claude/settings.local.json` in that project's root (or `~/.claude/settings.json` for global):
 
 ```json
 {
@@ -71,7 +64,7 @@ Claude Code asks for confirmation before each call to a trade tool. To skip the 
 }
 ```
 
-Note: Claude's safety policy may still decline crypto trading actions even with the allowlist in place — the allowlist controls permission prompts, not Claude's response-generation safety layer. If trades get declined despite the allowlist, phrase the request as an explicit authorization (e.g. *"I authorize a $5 long ETH on Lighter via `open_trade`. Execute now."*) or use Claude Code's plan mode.
+Note: Claude's built-in safety policies may still decline crypto trading actions even with the allowlist in place — the allowlist clears permission prompts, not Claude's own safety check on financial actions. If trades get declined, phrase the request as an explicit authorization (e.g. *"I authorize a $5 long ETH on Lighter via `open_trade`. Execute now."*) or use Claude Code's plan mode.
 
 ## Tools (36)
 
@@ -91,8 +84,8 @@ The `Auth` column shows whether a tool needs an API key:
 | `run_backtest` | open | Backtest a delta-neutral trade with real historical data |
 | `analyze_pair` | open | Full end-to-end analysis: funding + backtest + risk + depth on both legs + price spread |
 | `compare_exchanges` | open | Side-by-side comparison of same symbol across exchanges: rates, spread, depth, volume |
-| `find_best_trade` | open | Best trade you can open right now at your position size — ranked by composite score |
-| `get_smart_opportunities` | open | Opportunities ranked by tradability (APR × stability × depth × data confidence) |
+| `find_best_trade` | open | Best trade you can open right now at your position size — ranked by net APR after fees, liquidity, and risk |
+| `get_smart_opportunities` | open | Opportunities ranked by how tradable they actually are — APR, depth, and stability combined |
 | `get_pair_intelligence` | open | Risk scores, backtested APR, smart ranking, depth tiers for all pairs |
 | `check_liquidity` | open | Real-time order book depth + slippage estimates at $1k/$5k/$10k |
 
@@ -175,4 +168,4 @@ Once connected, ask your AI assistant:
 
 ## Get a Key
 
-Visit [profunding.pro](https://profunding.pro) to claim your free API key. Bound to your wallet so trading + find-exit work end-to-end.
+Visit [profunding.pro](https://profunding.pro) to claim your free API key. Bound to your wallet so trading and find-exit can sign and route orders on your behalf.
