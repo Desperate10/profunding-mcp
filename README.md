@@ -12,16 +12,22 @@ pip install profunding-mcp
 
 ## Setup
 
+### Get a free API key
+
+Most tools (trading, account, find-exit, deep analytics) require an API key. Keys are **free** at [profunding.pro](https://profunding.pro) — sign up takes seconds, no credit card. Market-data and backtest tools work without a key.
+
 ### Claude Code
 
-```bash
-claude mcp add profunding profunding-mcp
-```
-
-If you want higher quota / per-key usage tracking, add an API key:
+With a key (recommended — unlocks the full toolset):
 
 ```bash
 claude mcp add profunding profunding-mcp -e PROFUNDING_API_KEY=pfk_your_key_here
+```
+
+Without a key (market-data tools only):
+
+```bash
+claude mcp add profunding profunding-mcp
 ```
 
 ### Claude Desktop
@@ -41,108 +47,112 @@ Add to your `claude_desktop_config.json`:
 }
 ```
 
-The `env` block is optional — every tool works without an API key.
-
 ### Environment Variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `PROFUNDING_API_KEY` | No | Optional API key from [profunding.pro](https://profunding.pro) for higher quota and per-key usage tracking. All tools work without it. |
+| `PROFUNDING_API_KEY` | For most tools | Free key from [profunding.pro](https://profunding.pro). Trading, account, find-exit, and deep analytics need one; market-data tools work without one. |
 
 ## Tools (36)
 
-All tools are available without an API key.
+The `Auth` column shows whether a tool needs an API key:
+- **open** — public, no key needed
+- **key** — needs a free API key (wallet-bound for find-exit / trading)
 
-### Market Data & Analytics (19)
+### Market Data & Discovery (12, all open)
 
-| Tool | Description |
-|------|-------------|
-| `get_opportunities` | Live funding rate arbitrage opportunities across all DEXes |
-| `get_exchanges` | List connected DEXes with status and funding interval |
-| `get_historical_rates` | Historical funding rates for a symbol on one exchange |
-| `get_rate_chart_data` | Funding rate spread over time between two exchanges |
-| `get_price_spread_data` | Mark price divergence between two exchanges (price risk analysis) |
-| `run_backtest` | Backtest a delta-neutral trade with real historical data |
-| `analyze_pair` | Full end-to-end analysis: funding + backtest + risk + depth on both legs + price spread |
-| `compare_exchanges` | Side-by-side comparison of same symbol across exchanges: rates, spread, depth, volume |
-| `find_best_trade` | Best trade you can open right now at your position size — ranked by composite score |
-| `get_smart_opportunities` | Opportunities ranked by tradability (APR × stability × depth × data confidence) |
-| `get_pair_intelligence` | Risk scores, backtested APR, smart ranking, depth tiers for all pairs |
-| `check_liquidity` | Real-time order book depth + slippage estimates at $1k/$5k/$10k |
-| `get_live_alpha` | Top 5 deduplicated opportunities |
-| `get_still_paying` | Pairs above 50% APR for 24h+ still active now |
-| `get_top_holders` | Pairs holding high APR the longest |
-| `get_momentum_movers` | Biggest funding spread jumps in last 6 hours |
-| `get_unbroken_streaks` | Consecutive hours above APR threshold |
-| `get_record_roi` | Best single trade by ROI in a period |
-| `get_weekly_recap` | Best ROI pair, best DEX combo, most stable pair |
+| Tool | Auth | Description |
+|------|------|-------------|
+| `get_opportunities` | open | Live funding rate arbitrage opportunities across all DEXes |
+| `get_exchanges` | open | List connected DEXes with status and funding interval |
+| `get_historical_rates` | open | Historical funding rates for a symbol on one exchange |
+| `get_rate_chart_data` | open | Funding rate spread over time between two exchanges |
+| `get_price_spread_data` | open | Mark price divergence between two exchanges (price risk analysis) |
+| `run_backtest` | open | Backtest a delta-neutral trade with real historical data |
+| `analyze_pair` | open | Full end-to-end analysis: funding + backtest + risk + depth on both legs + price spread |
+| `compare_exchanges` | open | Side-by-side comparison of same symbol across exchanges: rates, spread, depth, volume |
+| `find_best_trade` | open | Best trade you can open right now at your position size — ranked by composite score |
+| `get_smart_opportunities` | open | Opportunities ranked by tradability (APR × stability × depth × data confidence) |
+| `get_pair_intelligence` | open | Risk scores, backtested APR, smart ranking, depth tiers for all pairs |
+| `check_liquidity` | open | Real-time order book depth + slippage estimates at $1k/$5k/$10k |
 
-### Trading (5)
+### Deep Analytics (7, key required)
 
-| Tool | Description |
-|------|-------------|
-| `open_trade` | Open a single-leg market position on one DEX (uses your stored credentials) |
-| `close_trade` | Close a single-leg position on one DEX |
-| `open_delta_neutral` | Open a delta-neutral pair: long one DEX, short another |
-| `close_delta_neutral` | Close both legs of a delta-neutral pair atomically |
-| `convert_stablecoin` | Convert between USDC / USDT / other stablecoins where supported |
+| Tool | Auth | Description |
+|------|------|-------------|
+| `get_live_alpha` | key | Top 5 deduplicated opportunities |
+| `get_still_paying` | key | Pairs above 50% APR for 24h+ still active now |
+| `get_top_holders` | key | Pairs holding high APR the longest |
+| `get_momentum_movers` | key | Biggest funding spread jumps in last 6 hours |
+| `get_unbroken_streaks` | key | Consecutive hours above APR threshold |
+| `get_record_roi` | key | Best single trade by ROI in a period |
+| `get_weekly_recap` | key | Best ROI pair, best DEX combo, most stable pair |
 
-### Account (3)
+### Trading (5, key required)
 
-| Tool | Description |
-|------|-------------|
-| `get_positions` | List your open positions across all DEXes with credentials stored |
-| `get_balance` | Read account balances from each connected DEX |
-| `get_alerts` | Position alerts and monitoring events triggered for your wallet |
+| Tool | Auth | Description |
+|------|------|-------------|
+| `open_trade` | key | Open a single-leg market position on one DEX (uses your stored credentials) |
+| `close_trade` | key | Close a single-leg position on one DEX |
+| `open_delta_neutral` | key | Open a delta-neutral pair: long one DEX, short another |
+| `close_delta_neutral` | key | Close both legs of a delta-neutral pair atomically |
+| `convert_stablecoin` | key | Convert between USDC / USDT / other stablecoins where supported |
 
-### Credentials (4)
+### Account (3, key required)
 
-| Tool | Description |
-|------|-------------|
-| `store_credentials` | Save API keys / signer keys for a DEX (encrypted server-side) |
-| `list_credentials` | List which DEXes have credentials stored, with last-verified status |
-| `revoke_credentials` | Remove stored credentials for one DEX |
-| `revoke_all_credentials` | Remove all stored credentials |
+| Tool | Auth | Description |
+|------|------|-------------|
+| `get_positions` | key | List your open positions across all DEXes with credentials stored |
+| `get_balance` | key | Read account balances from each connected DEX |
+| `get_alerts` | key | Position alerts and monitoring events triggered for your wallet |
 
-### Find Exit (4)
+### Credentials (4, key required)
+
+| Tool | Auth | Description |
+|------|------|-------------|
+| `store_credentials` | key | Save API keys / signer keys for a DEX (encrypted server-side) |
+| `list_credentials` | key | List which DEXes have credentials stored, with last-verified status |
+| `revoke_credentials` | key | Remove stored credentials for one DEX |
+| `revoke_all_credentials` | key | Remove all stored credentials |
+
+### Find Exit (4, key required)
 
 Optimal-exit search for an open delta-neutral position. Backend monitors the spread peak and exits when conditions confirm the trade has stopped paying.
 
-| Tool | Description |
-|------|-------------|
-| `find_exit_preview` | Preview what an optimal exit would look like for a position (peak/target/current) |
-| `find_exit_start` | Start a find-exit job on a position with target APR / max wait constraints |
-| `find_exit_status` | Read current state of a find-exit job (anchor, peak, drawdown, ticks) |
-| `find_exit_cancel` | Cancel an active find-exit job and leave the position open |
+| Tool | Auth | Description |
+|------|------|-------------|
+| `find_exit_preview` | key | Preview what an optimal exit would look like for a position (peak/target/current) |
+| `find_exit_start` | key | Start a find-exit job on a position with target APR / max wait constraints |
+| `find_exit_status` | key | Read current state of a find-exit job (anchor, peak, drawdown, ticks) |
+| `find_exit_cancel` | key | Cancel an active find-exit job and leave the position open |
 
-### Monitoring (1)
+### Monitoring (1, key required)
 
-| Tool | Description |
-|------|-------------|
-| `watch_position` | Set up alert thresholds for a position (drawdown, funding sign flip, etc) — fires via Telegram |
+| Tool | Auth | Description |
+|------|------|-------------|
+| `watch_position` | key | Set up alert thresholds for a position (drawdown, funding sign flip, etc) — fires via Telegram |
 
 ## Example Queries
 
 Once connected, ask your AI assistant:
 
-**Discovery & analysis**
+**Discovery & analysis** (work without a key)
 - "What's the best trade I can open right now with $5k?"
 - "Analyze ETH/USDC on Extended vs Aster — is it worth entering?"
 - "Compare ETH funding rates across Hyperliquid, Aster, and Extended"
 - "Check liquidity for SOL on Pacifica — can I fill $10k?"
 - "Run a 30-day backtest on BTC long Lighter short Hyperliquid"
-- "Which pairs have been paying above 50% for 3+ days straight?"
 
-**Trading**
+**Trading** (need a key)
 - "Open a $200 delta-neutral on ETH: long Hyperliquid, short Aster"
 - "What positions do I have open?"
 - "Close my BTC delta-neutral pair"
 - "Find the optimal exit for my SOL/USDC position with a 50% target APR"
 
-**Credentials**
+**Credentials** (need a key)
 - "Store my Hyperliquid API key — I'll paste the wallet and signer below"
 - "Which DEXes do I have credentials for?"
 
-## Get an API Key (optional)
+## Get a Key
 
-Visit [profunding.pro](https://profunding.pro) to claim a key for higher per-IP quota and per-account usage tracking. The MCP server works without a key.
+Visit [profunding.pro](https://profunding.pro) to claim your free API key. Bound to your wallet so trading + find-exit work end-to-end.
