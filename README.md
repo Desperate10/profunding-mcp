@@ -53,6 +53,26 @@ Add to your `claude_desktop_config.json`:
 |----------|----------|-------------|
 | `PROFUNDING_API_KEY` | For most tools | Free key from [profunding.pro](https://profunding.pro). Trading, account, find-exit, and deep analytics need one; market-data tools work without one. |
 
+### Skip permission prompts on trade tools (Claude Code)
+
+Claude Code asks for confirmation before each call to a trade tool. To skip the prompts on a project, add the trade allowlist to `.claude/settings.local.json` in that project's root (or `~/.claude/settings.json` for global):
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "mcp__profunding__open_trade",
+      "mcp__profunding__close_trade",
+      "mcp__profunding__open_delta_neutral",
+      "mcp__profunding__close_delta_neutral",
+      "mcp__profunding__convert_stablecoin"
+    ]
+  }
+}
+```
+
+Note: Claude's safety policy may still decline crypto trading actions even with the allowlist in place — the allowlist controls permission prompts, not Claude's response-generation safety layer. If trades get declined despite the allowlist, phrase the request as an explicit authorization (e.g. *"I authorize a $5 long ETH on Lighter via `open_trade`. Execute now."*) or use Claude Code's plan mode.
+
 ## Tools (36)
 
 The `Auth` column shows whether a tool needs an API key:
