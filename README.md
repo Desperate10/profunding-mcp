@@ -56,9 +56,13 @@ Claude Code asks for confirmation before each call to a trade tool. To approve t
     "allow": [
       "mcp__profunding__open_trade",
       "mcp__profunding__close_trade",
+      "mcp__profunding__cancel_order",
       "mcp__profunding__open_delta_neutral",
       "mcp__profunding__close_delta_neutral",
-      "mcp__profunding__convert_stablecoin"
+      "mcp__profunding__convert_stablecoin",
+      "mcp__profunding__twap_open_dn",
+      "mcp__profunding__twap_close_dn",
+      "mcp__profunding__twap_cancel"
     ]
   }
 }
@@ -66,7 +70,7 @@ Claude Code asks for confirmation before each call to a trade tool. To approve t
 
 Note: Claude's built-in safety policies may still decline crypto trading actions even with the allowlist in place — the allowlist clears permission prompts, not Claude's own safety check on financial actions. If trades get declined, phrase the request as an explicit authorization (e.g. *"I authorize a $5 long ETH on Lighter via `open_trade`. Execute now."*) or use Claude Code's plan mode.
 
-## Tools (36)
+## Tools (44)
 
 The `Auth` column shows whether a tool needs an API key:
 - **open** — public, no key needed
@@ -105,11 +109,33 @@ The `Auth` column shows whether a tool needs an API key:
 
 | Tool | Auth | Description |
 |------|------|-------------|
-| `open_trade` | key | Open a single-leg market position on one DEX (uses your stored credentials) |
-| `close_trade` | key | Close a single-leg position on one DEX |
-| `open_delta_neutral` | key | Open a delta-neutral pair: long one DEX, short another |
-| `close_delta_neutral` | key | Close both legs of a delta-neutral pair atomically |
+| `open_trade` | key | Open a single-leg position on one DEX — **market, or a resting `limit` order** (`order_type="limit"` + `limit_price`, Aster/Lighter) |
+| `close_trade` | key | Close a single-leg position on one DEX — market, or a resting reduce-only **limit** close (`limit_price`, Aster/Lighter) |
+| `open_delta_neutral` | key | Open a delta-neutral pair: long one DEX, short another (market) |
+| `close_delta_neutral` | key | Close both legs of a delta-neutral pair (market) |
 | `convert_stablecoin` | key | Convert between USDC / USDT / other stablecoins where supported |
+
+### Limit Orders (3, key required)
+
+Resting limit orders on **Aster + Lighter**. A limit order from `open_trade` returns immediately with `status="open"` and an order id; manage it with these. **Per-DEX cancel id:** Aster's order id (from `open_trade`) is cancellable directly; **Lighter resting orders must be located via `get_open_orders` first** — the `open_trade` response is a tx hash, not a cancellable id, so list-then-cancel.
+
+| Tool | Auth | Description |
+|------|------|-------------|
+| `get_open_orders` | key | List your resting limit orders on a DEX (Lighter requires a symbol; its returned id is what `cancel_order` needs) |
+| `cancel_order` | key | Cancel a resting limit order by its cancellable order id |
+| `get_order_fills` | key | Check whether a limit order filled and finalize builder-fee accounting (pass the `trade_log_id` from `open_trade`) |
+
+### TWAP (5, key required)
+
+Backend-orchestrated TWAP that slices a delta-neutral **open** or **close** over time with per-slice slippage protection. Runs server-side (no client needed) — start it, then poll. Supported DEXes: hyperliquid, extended, pacifica, aster, lighter, grvt, hibachi, ethereal, o1xyz, nado, variational (+ HIP-3).
+
+| Tool | Auth | Description |
+|------|------|-------------|
+| `twap_open_dn` | key | Gradually OPEN a delta-neutral pair (margin-sized) — slices into both legs over a time window |
+| `twap_close_dn` | key | Gradually CLOSE a delta-neutral pair — slices both legs out over a time window |
+| `twap_job_status` | key | Status + progress of a TWAP job (open or close) |
+| `twap_cancel` | key | Stop a running TWAP job at the next slice boundary (filled slices are not rolled back) |
+| `twap_jobs` | key | List your recent TWAP jobs (open + close) |
 
 ### Account (3, key required)
 
@@ -161,6 +187,8 @@ Once connected, ask your AI assistant:
 - "What positions do I have open?"
 - "Close my BTC delta-neutral pair"
 - "Find the optimal exit for my SOL/USDC position with a 50% target APR"
+- "Place a resting limit buy of $50 ETH on Aster at 3000, then show my open orders"
+- "TWAP into a $1000 delta-neutral on SOL (long Lighter, short Aster) over 20 minutes, then check the job status"
 
 **Credentials** (need a key)
 - "Store my Hyperliquid API key — I'll paste the wallet and signer below"

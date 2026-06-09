@@ -1031,30 +1031,66 @@ async def open_trade(
     side: str,
     size_usd: float,
     leverage: int = 5,
+    order_type: str = "market",
+    limit_price: float | None = None,
+    post_only: bool = False,
 ) -> str:
     """Open a single trade on an exchange using stored credentials.
     [Free]
 
+    Market by default. For a RESTING limit order set order_type="limit" and
+    limit_price (Aster + Lighter only): it returns immediately with status
+    "open" and an order id — then manage it with get_open_orders, cancel_order
+    and get_order_fills. size_usd is converted to size at the limit price.
+
     Args:
-        exchange: Exchange name (e.g. "Hyperliquid", "Lighter")
+        exchange: Exchange name (e.g. "Hyperliquid", "Lighter", "Aster")
         symbol: Trading pair (e.g. "ETH/USDC", "BTC/USDC")
         side: "long" or "short"
         size_usd: Position size in USD per leg
         leverage: Leverage multiplier (default 5)
+        order_type: "market" (default) or "limit"
+        limit_price: Required when order_type="limit" — the resting price
+        post_only: Request maker-only (Aster uses GTX; ignored on Lighter)
     """
+    body = {
+        "exchange": exchange,
+        "symbol": symbol,
+        "side": side,
+        "size_usd": size_usd,
+        "leverage": leverage,
+        "order_type": order_type,
+    }
+    if order_type == "limit":
+        if limit_price is None:
+            return "Error: limit_price is required when order_type='limit'."
+        body["limit_price"] = limit_price
+        body["post_only"] = post_only
     try:
-        data = await client.post("/mcp/trade/open", json={
-            "exchange": exchange,
-            "symbol": symbol,
-            "side": side,
-            "size_usd": size_usd,
-            "leverage": leverage,
-        })
+        data = await client.post("/mcp/trade/open", json=body)
+        status = data.get("status")
+        if order_type == "limit" and status == "open":
+            lighter_note = (
+                "\n  NOTE: on Lighter, cancel via the id from get_open_orders "
+                "(this order_id is a tx hash, not cancellable)."
+                if exchange.lower() == "lighter" else ""
+            )
+            warn = data.get("warning")
+            warn_note = f"\n  ⚠ {warn}" if warn else ""
+            return (
+                f"Limit order RESTING on {exchange}:\n"
+                f"  {side.upper()} {symbol}, ${size_usd} @ {limit_price} ({leverage}x)\n"
+                f"  Order ID: {data.get('order_id')}\n"
+                f"  trade_log_id: {data.get('trade_log_id')} "
+                f"(pass to get_order_fills once filled to finalize fees)\n"
+                f"  Manage with: get_open_orders / cancel_order / get_order_fills"
+                f"{lighter_note}{warn_note}"
+            )
         return (
             f"Order placed on {exchange}:\n"
-            f"  {side.upper()} {symbol}, ${size_usd} at {leverage}x\n"
+            f"  {side.upper()} {symbol}, ${size_usd} at {leverage}x ({order_type})\n"
             f"  Order ID: {data.get('order_id')}\n"
-            f"  Status: {data.get('status')}\n"
+            f"  Status: {status}\n"
             f"  Fill price: {data.get('filled_price')}"
         )
     except Exception as e:
@@ -1062,29 +1098,342 @@ async def open_trade(
 
 
 @mcp.tool()
-async def close_trade(exchange: str, symbol: str, side: str) -> str:
+async def close_trade(
+    exchange: str, symbol: str, side: str, limit_price: float | None = None,
+) -> str:
     """Close an open position on an exchange using stored credentials.
     [Free]
+
+    Market close by default. Pass limit_price for a resting reduce-only LIMIT
+    close (Aster + Lighter) — returns status "open"; finalize via get_order_fills.
 
     Args:
         exchange: Exchange name
         symbol: Trading pair (e.g. "ETH/USDC")
         side: "long" or "short" — the side you want to close
+        limit_price: If set, place a resting reduce-only limit close at this price
     """
+    body = {"exchange": exchange, "symbol": symbol, "side": side}
+    if limit_price is not None:
+        body["limit_price"] = limit_price
     try:
-        data = await client.post("/mcp/trade/close", json={
-            "exchange": exchange,
-            "symbol": symbol,
-            "side": side,
-        })
+        data = await client.post("/mcp/trade/close", json=body)
+        status = data.get("status")
+        if limit_price is not None and status == "open":
+            return (
+                f"Limit close RESTING on {exchange}:\n"
+                f"  {side.upper()} {symbol} @ {limit_price}\n"
+                f"  Order ID: {data.get('order_id')}\n"
+                f"  trade_log_id: {data.get('trade_log_id')}"
+            )
         return (
             f"Position closed on {exchange}:\n"
             f"  {side.upper()} {symbol}\n"
-            f"  Status: {data.get('status')}\n"
+            f"  Status: {status}\n"
             f"  Fill price: {data.get('filled_price')}"
         )
     except Exception as e:
         return f"Close failed: {e}"
+
+
+@mcp.tool()
+async def cancel_order(exchange: str, symbol: str, order_id: str) -> str:
+    """Cancel a resting limit order (Aster + Lighter only).
+    [Free]
+
+    Args:
+        exchange: Exchange name
+        symbol: Trading pair the order is on
+        order_id: Cancellable id. Aster: the id returned by open_trade. Lighter:
+            the "market:order_index" id from get_open_orders (the open_trade tx
+            hash is NOT cancellable — list first, then cancel).
+    """
+    try:
+        data = await client.post("/mcp/trade/cancel-order", json={
+            "exchange": exchange,
+            "symbol": symbol,
+            "order_id": order_id,
+        })
+        ok = data.get("success")
+        return f"Cancel {'OK' if ok else data.get('status')} for {order_id} on {exchange}."
+    except Exception as e:
+        return f"Cancel failed: {e}"
+
+
+@mcp.tool()
+async def get_open_orders(exchange: str, symbol: str = "") -> str:
+    """List your resting (unfilled) limit orders on an exchange (Aster + Lighter).
+    [Free]
+
+    For Lighter a symbol is REQUIRED (it lists active orders per market), and
+    the returned order_id ("market:order_index") is exactly what cancel_order
+    needs.
+
+    Args:
+        exchange: Exchange name
+        symbol: Trading pair (required for Lighter)
+    """
+    try:
+        params = {"exchange": exchange}
+        if symbol:
+            params["symbol"] = symbol
+        data = await client.get("/mcp/trade/open-orders", params=params)
+        if not data:
+            return "No resting orders."
+        lines = [f"Open orders ({len(data)}):"]
+        for o in data:
+            ro = " reduce-only" if o.get("reduce_only") else ""
+            lines.append(
+                f"  [{o['order_id']}] {o['side'].upper()} {o['symbol']} "
+                f"{o['size']} @ {o['price']}{ro}"
+            )
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Failed to list open orders: {e}"
+
+
+@mcp.tool()
+async def get_order_fills(
+    exchange: str, symbol: str, order_id: str, trade_log_id: int = 0,
+) -> str:
+    """Check whether a limit order filled, and finalize fee accounting.
+    Call after an order disappears from get_open_orders.
+    [Free]
+
+    Args:
+        exchange: Exchange name
+        symbol: Trading pair
+        order_id: Lighter: the tx hash from open_trade. Aster: the id from open_trade.
+        trade_log_id: The trade_log_id from open_trade's response (optional, but
+            required to finalize builder-fee accounting on the fill)
+    """
+    try:
+        params = {"exchange": exchange, "symbol": symbol, "order_id": order_id}
+        if trade_log_id:
+            params["trade_log_id"] = trade_log_id
+        data = await client.get("/mcp/trade/order-fills", params=params)
+        return (
+            f"Order {order_id} on {exchange}:\n"
+            f"  Status: {data.get('status')}\n"
+            f"  Filled: {data.get('filled_size')} @ {data.get('fill_price')}\n"
+            f"  Fee: {data.get('fee')}\n"
+            f"  Accounting finalized: {data.get('confirmed')}"
+        )
+    except Exception as e:
+        return f"Failed to fetch order fills: {e}"
+
+
+# ─── TWAP Tools (Free) ───────────────────────────────────────
+
+
+def _twap_config(
+    total_slices: int, duration_minutes: float, max_slippage_bps: int,
+    size_randomization: float, interval_randomization: float, max_consecutive_skips: int,
+) -> dict:
+    return {
+        "total_slices": total_slices,
+        "duration_minutes": duration_minutes,
+        "max_slippage_bps": max_slippage_bps,
+        "size_randomization": size_randomization,
+        "interval_randomization": interval_randomization,
+        "max_consecutive_skips": max_consecutive_skips,
+    }
+
+
+def _fmt_twap_job(data: dict) -> str:
+    cfg = dict(data.get("config") or {})
+    lines = [
+        f"TWAP {data.get('direction', '?')} job {data.get('id')}:",
+        f"  {data.get('symbol')} — {data.get('long_exchange')}/{data.get('short_exchange')}",
+        f"  Status: {data.get('status')} ({data.get('percent_complete', 0):.0f}% complete)",
+        f"  Slices: {data.get('filled_slices')} filled / {data.get('skipped_slices')} skipped "
+        f"of {cfg.get('totalSlices', '?')}",
+    ]
+    if data.get("direction") == "open" and data.get("target_margin_usd") is not None:
+        lines.append(f"  Target margin: ${data['target_margin_usd']}")
+    else:
+        lines.append(
+            f"  Long filled {data.get('long_filled')}/{data.get('long_size_total')}, "
+            f"short {data.get('short_filled')}/{data.get('short_size_total')}"
+        )
+    if data.get("interrupt_reason"):
+        lines.append(f"  Interrupt: {data['interrupt_reason']}")
+    if data.get("error"):
+        lines.append(f"  Error: {data['error']}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def twap_open_dn(
+    symbol: str,
+    long_exchange: str,
+    short_exchange: str,
+    target_margin_usd: float,
+    leverage: int = 5,
+    total_slices: int = 10,
+    duration_minutes: float = 30,
+    max_slippage_bps: int = 20,
+    size_randomization: float = 0.0,
+    interval_randomization: float = 0.0,
+    max_consecutive_skips: int = 3,
+) -> str:
+    """Open a delta-neutral position GRADUALLY via backend TWAP — slices into
+    both legs over time with per-slice slippage protection. Runs server-side
+    (no client needed); poll with twap_job_status, stop with twap_cancel.
+    [Free]
+
+    Supported on the backend-TWAP DEXes: hyperliquid, extended, pacifica,
+    aster, lighter, grvt, hibachi, ethereal, o1xyz, nado, variational (+ HIP-3).
+
+    Args:
+        symbol: Trading pair (e.g. "ETH/USDC")
+        long_exchange: leg to go long
+        short_exchange: leg to go short
+        target_margin_usd: TOTAL margin (USD) across both legs (per-leg = half)
+        leverage: leverage multiplier (default 5)
+        total_slices: number of slices (default 10)
+        duration_minutes: total execution window (default 30)
+        max_slippage_bps: skip a slice if combined slippage exceeds this (default 20 = 0.20%)
+        size_randomization: 0–0.5 stealth jitter on slice size
+        interval_randomization: 0–0.5 stealth jitter on slice timing
+        max_consecutive_skips: abort after N consecutive skips (default 3)
+    """
+    try:
+        data = await client.post("/trade/twap-open-dn", json={
+            "symbol": symbol,
+            "long_exchange": long_exchange,
+            "short_exchange": short_exchange,
+            "target_margin_usd": target_margin_usd,
+            "leverage": leverage,
+            "config": _twap_config(
+                total_slices, duration_minutes, max_slippage_bps,
+                size_randomization, interval_randomization, max_consecutive_skips,
+            ),
+        })
+        return (
+            f"TWAP-open started (job {data.get('id')}):\n"
+            f"  {symbol} — Long {long_exchange} / Short {short_exchange}\n"
+            f"  Target margin ${target_margin_usd} ({leverage}x) over "
+            f"{total_slices} slices / {duration_minutes}m\n"
+            f"  Status: {data.get('status')} — poll twap_job_status, stop with twap_cancel."
+        )
+    except Exception as e:
+        return f"TWAP-open failed: {e}"
+
+
+@mcp.tool()
+async def twap_close_dn(
+    symbol: str,
+    long_exchange: str,
+    short_exchange: str,
+    long_size: float,
+    short_size: float,
+    leverage: int | None = None,
+    total_slices: int = 10,
+    duration_minutes: float = 30,
+    max_slippage_bps: int = 20,
+    size_randomization: float = 0.0,
+    interval_randomization: float = 0.0,
+    max_consecutive_skips: int = 3,
+) -> str:
+    """Close a delta-neutral position GRADUALLY via backend TWAP — slices both
+    legs out over time with per-slice slippage protection. Runs server-side;
+    poll with twap_job_status, stop with twap_cancel.
+    [Free]
+
+    Args:
+        symbol: Trading pair (e.g. "ETH/USDC")
+        long_exchange: exchange where the long leg sits
+        short_exchange: exchange where the short leg sits
+        long_size: base-asset size to close on the long leg (from get_positions)
+        short_size: base-asset size to close on the short leg
+        leverage: optional; only used if a slice has to roll back
+        total_slices: number of slices (default 10)
+        duration_minutes: total execution window (default 30)
+        max_slippage_bps: skip a slice if combined slippage exceeds this (default 20)
+        size_randomization: 0–0.5 stealth jitter on slice size
+        interval_randomization: 0–0.5 stealth jitter on slice timing
+        max_consecutive_skips: abort after N consecutive skips (default 3)
+    """
+    body = {
+        "symbol": symbol,
+        "long_exchange": long_exchange,
+        "short_exchange": short_exchange,
+        "long_size": long_size,
+        "short_size": short_size,
+        "config": _twap_config(
+            total_slices, duration_minutes, max_slippage_bps,
+            size_randomization, interval_randomization, max_consecutive_skips,
+        ),
+    }
+    if leverage is not None:
+        body["leverage"] = leverage
+    try:
+        data = await client.post("/trade/twap-close-dn", json=body)
+        return (
+            f"TWAP-close started (job {data.get('id')}):\n"
+            f"  {symbol} — {long_exchange}/{short_exchange}\n"
+            f"  Closing long {long_size} / short {short_size} over "
+            f"{total_slices} slices / {duration_minutes}m\n"
+            f"  Status: {data.get('status')} — poll twap_job_status, stop with twap_cancel."
+        )
+    except Exception as e:
+        return f"TWAP-close failed: {e}"
+
+
+@mcp.tool()
+async def twap_job_status(job_id: str) -> str:
+    """Get the status + progress of a backend TWAP job (open or close).
+    [Free]
+
+    Args:
+        job_id: the id returned by twap_open_dn / twap_close_dn
+    """
+    try:
+        data = await client.get(f"/trade/twap-jobs/{job_id}")
+        return _fmt_twap_job(data)
+    except Exception as e:
+        return f"Failed to get TWAP job: {e}"
+
+
+@mcp.tool()
+async def twap_cancel(job_id: str) -> str:
+    """Cancel a running backend TWAP job (open or close). The runner stops at
+    the next slice boundary; already-filled slices are NOT rolled back.
+    [Free]
+
+    Args:
+        job_id: the TWAP job id
+    """
+    try:
+        data = await client.post(f"/trade/twap-jobs/{job_id}/cancel")
+        return f"Cancel requested. Status now: {data.get('status')}"
+    except Exception as e:
+        return f"Failed to cancel TWAP job: {e}"
+
+
+@mcp.tool()
+async def twap_jobs(active_only: bool = False) -> str:
+    """List your recent backend TWAP jobs (open + close), newest first.
+    [Free]
+
+    Args:
+        active_only: only show non-terminal jobs (default false)
+    """
+    try:
+        data = await client.get("/trade/twap-jobs", params={"active_only": str(active_only).lower()})
+        if not data:
+            return "No TWAP jobs."
+        lines = [f"TWAP jobs ({len(data)}):"]
+        for j in data:
+            lines.append(
+                f"  [{str(j.get('id', ''))[:8]}] {j.get('direction')} {j.get('symbol')} "
+                f"{j.get('long_exchange')}/{j.get('short_exchange')} — "
+                f"{j.get('status')} ({j.get('percent_complete', 0):.0f}%)"
+            )
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Failed to list TWAP jobs: {e}"
 
 
 @mcp.tool()
