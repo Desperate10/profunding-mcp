@@ -1818,9 +1818,61 @@ async def find_exit_start(
         return f"Failed to start Find-the-Exit: {e}"
 
 
+def _format_find_exit_event(ev: dict) -> str:
+    """One human line per decision-log event (mirrors the frontend wording).
+
+    Wait states carry a poll_count and may be ongoing (ended_at is None);
+    discrete events are instantaneous. Unknown types render as-is so a newer
+    backend never breaks an older published MCP package.
+    """
+    etype = ev.get("event_type", "?")
+    ctx = ev.get("context") or {}
+    polls = int(ev.get("poll_count") or 1)
+
+    def _f(key: str, fmt: str = "{:.6f}") -> str:
+        v = ctx.get(key)
+        try:
+            return fmt.format(float(v))
+        except (TypeError, ValueError):
+            return "?"
+
+    if etype == "below_target":
+        return (f"waiting below target ({polls} polls, "
+                f"current {_f('current_per_unit')} vs target {_f('target_per_unit')}, "
+                f"best approach {_f('best_ratio_seen', '{:.0%}')})")
+    if etype == "book_thin":
+        return (f"target met but book too thin ({polls} polls, "
+                f"best feasible slice ${_f('slice_usd', '{:.2f}')} "
+                f"< ${_f('slice_threshold', '{:.2f}')} threshold)")
+    if etype == "stale_marks":
+        return f"skipping polls — {ctx.get('reason', 'stale')} price feed ({polls} polls)"
+    if etype == "data_unavailable":
+        return f"market data unavailable ({polls} polls)"
+    if etype == "job_started":
+        return f"job started (bootstrap peak {_f('bootstrap_max_per_unit')}/unit)"
+    if etype == "job_resumed":
+        return "resumed after backend restart"
+    if etype == "peak_confirmed":
+        return f"new confirmed peak {_f('new_max_per_unit')}/unit (was {_f('old_max_per_unit')})"
+    if etype == "slice_fired":
+        return (f"slice #{ctx.get('slice_index', '?')} filled — "
+                f"${_f('slice_usd', '{:.2f}')} closed, PnL ${_f('slice_pnl_usd', '{:+.2f}')}")
+    if etype == "slice_transient_retry":
+        return f"slice #{ctx.get('slice_index', '?')} transient error, retrying"
+    if etype == "force_close":
+        return f"force-closing remainder — funding flips negative in {_f('seconds_to_tick', '{:.0f}')}s"
+    if etype == "ping_sent":
+        return f"progress ping sent ({ctx.get('kind', '?')})"
+    if etype == "job_finished":
+        reason = ctx.get("exit_reason") or ctx.get("status") or "?"
+        return f"finished: {reason}"
+    return etype
+
+
 @mcp.tool()
 async def find_exit_status(job_id: str) -> str:
-    """Get the current state of a Find-the-Exit job and its fill history.
+    """Get the current state of a Find-the-Exit job, its fill history, and
+    the recent decision log (why it is/isn't firing right now).
     [Free]
 
     Args:
@@ -1867,6 +1919,14 @@ async def find_exit_status(job_id: str) -> str:
                 f"S@{float(last.get('short_avg_price', 0)):.4f} "
                 f"PnL ${float(last.get('slice_pnl_usd', 0)):+.2f}"
             )
+        # Decision log (backends older than the events feature omit the key).
+        events = data.get("events") or []
+        if events:
+            lines.append("  Recent decisions:")
+            for ev in events[-10:]:
+                ts = str(ev.get("started_at") or "")[11:19]  # HH:MM:SS
+                suffix = "" if ev.get("ended_at") else " (ongoing)"
+                lines.append(f"    [{ts}] {_format_find_exit_event(ev)}{suffix}")
         return "\n".join(lines)
     except Exception as e:
         return f"Failed to get Find-the-Exit status: {e}"
