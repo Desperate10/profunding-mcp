@@ -1863,6 +1863,16 @@ def _format_find_exit_event(ev: dict) -> str:
         return f"force-closing remainder — funding flips negative in {_f('seconds_to_tick', '{:.0f}')}s"
     if etype == "ping_sent":
         return f"progress ping sent ({ctx.get('kind', '?')})"
+    if etype == "leg_imbalance":
+        return (f"leg sizes diverged — ${_f('imbalance_usd', '{:.2f}')} residual "
+                f"(long {ctx.get('remaining_long', '?')} / short {ctx.get('remaining_short', '?')} remaining)")
+    if etype == "residual_leg_closed":
+        flat = " (was already flat)" if ctx.get("was_already_flat") else ""
+        return (f"closed residual {ctx.get('leg', '?')} leg at market{flat} — "
+                f"{ctx.get('filled', '?')} units @ {_f('avg_price', '{:.6f}')}")
+    if etype == "residual_dust":
+        return (f"residual {ctx.get('leg', '?')} leg below venue minimum — left open "
+                f"(${_f('notional_usd', '{:.2f}')})")
     if etype == "job_finished":
         reason = ctx.get("exit_reason") or ctx.get("status") or "?"
         return f"finished: {reason}"
