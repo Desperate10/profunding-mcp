@@ -1466,6 +1466,13 @@ async def open_delta_neutral(
 
         status = data.get("status", "unknown")
         lines = [f"Delta-neutral position: {status.upper()}"]
+
+        # Non-fatal advisories (e.g. leg-imbalance / inter-venue price
+        # divergence) surface FIRST so the agent/user sees the hedge caveat on
+        # the same turn the position opened — not buried under the leg details.
+        for w in (data.get("warnings") or []):
+            lines.append(f"  ⚠ {w}")
+
         lines.append(f"  Position ID: {data.get('position_id')}")
         lines.append(f"  {symbol} — Long {long_exchange} / Short {short_exchange}")
         lines.append(f"  Size: ${size_usd}/leg at {leverage}x")
