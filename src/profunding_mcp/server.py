@@ -1824,6 +1824,11 @@ def _format_find_exit_event(ev: dict) -> str:
     Wait states carry a poll_count and may be ongoing (ended_at is None);
     discrete events are instantaneous. Unknown types render as-is so a newer
     backend never breaks an older published MCP package.
+
+    Dollars-first: when the event's own context carries leg sizes, per-unit
+    values render as position dollars (per-unit × avg remaining, ≈-prefixed —
+    estimates, not exact). Events from older backends without sizes fall back
+    to the per-unit / ratio wording.
     """
     etype = ev.get("event_type", "?")
     ctx = ev.get("context") or {}
@@ -1836,10 +1841,42 @@ def _format_find_exit_event(ev: dict) -> str:
         except (TypeError, ValueError):
             return "?"
 
+    def _num(key: str):
+        try:
+            v = float(ctx.get(key))
+            return v if v == v else None  # NaN guard
+        except (TypeError, ValueError):
+            return None
+
+    def _units():
+        for a_key, b_key in (("remaining_long", "remaining_short"),
+                             ("initial_long_size", "initial_short_size")):
+            try:
+                avg = (float(ctx[a_key]) + float(ctx[b_key])) / 2
+            except (KeyError, TypeError, ValueError):
+                continue
+            if avg > 0:
+                return avg
+        return None
+
     if etype == "below_target":
+        units = _units()
+        cur = _num("current_per_unit")
+        tgt = _num("target_per_unit")
+        if units is not None and cur is not None and tgt is not None:
+            gate = (f"vs target ${tgt * units:.2f}" if tgt * units > 0
+                    else "vs first positive crossing")
+            best = _num("best_per_unit_seen")
+            best_part = (f", best approach ≈ ${best * units:+.2f}"
+                         if best is not None else "")
+            return (f"waiting below target ({polls} polls, "
+                    f"PnL ≈ ${cur * units:+.2f} {gate}{best_part})")
+        best_ratio = _num("best_ratio_seen")
+        best_str = (f"{best_ratio:.0%}" if best_ratio is not None and best_ratio >= 0
+                    else "—")
         return (f"waiting below target ({polls} polls, "
                 f"current {_f('current_per_unit')} vs target {_f('target_per_unit')}, "
-                f"best approach {_f('best_ratio_seen', '{:.0%}')})")
+                f"best approach {best_str})")
     if etype == "book_thin":
         return (f"target met but book too thin ({polls} polls, "
                 f"best feasible slice ${_f('slice_usd', '{:.2f}')} "
@@ -1849,10 +1886,23 @@ def _format_find_exit_event(ev: dict) -> str:
     if etype == "data_unavailable":
         return f"market data unavailable ({polls} polls)"
     if etype == "job_started":
+        boot = _num("bootstrap_max_per_unit")
+        if boot == 0:
+            return "job started (no favorable history yet — closes at first positive PnL)"
+        units = _units()
+        if boot is not None and units is not None:
+            return (f"job started (bootstrap peak ≈ ${boot * units:.2f}, "
+                    f"{boot:.6f}/unit)")
         return f"job started (bootstrap peak {_f('bootstrap_max_per_unit')}/unit)"
     if etype == "job_resumed":
         return "resumed after backend restart"
     if etype == "peak_confirmed":
+        units = _units()
+        new = _num("new_max_per_unit")
+        old = _num("old_max_per_unit")
+        if units is not None and new is not None:
+            was = f"${old * units:.2f}" if old is not None else "—"
+            return f"new confirmed peak ≈ ${new * units:.2f} (was {was})"
         return f"new confirmed peak {_f('new_max_per_unit')}/unit (was {_f('old_max_per_unit')})"
     if etype == "slice_fired":
         return (f"slice #{ctx.get('slice_index', '?')} filled — "
