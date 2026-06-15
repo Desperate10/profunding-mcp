@@ -1039,9 +1039,13 @@ async def open_trade(
     [Free]
 
     Market by default. For a RESTING limit order set order_type="limit" and
-    limit_price (Aster + Lighter only): it returns immediately with status
-    "open" and an order id — then manage it with get_open_orders, cancel_order
-    and get_order_fills. size_usd is converted to size at the limit price.
+    limit_price (supported on ALL tradable DEXes — aster, hyperliquid (+ HIP-3
+    sub-DEXes), lighter, pacifica, hibachi, extended, nado, grvt, 01xyz,
+    variational, ethereal, hotstuff, risex; an unsupported exchange returns a
+    clear error listing the live set; Extended, nado, grvt, ethereal and risex
+    honor post_only): it returns immediately with status "open" and an order id —
+    then manage it with get_open_orders, cancel_order and get_order_fills. size_usd
+    is converted to size at the limit price.
 
     Args:
         exchange: Exchange name (e.g. "Hyperliquid", "Lighter", "Aster")
@@ -1105,7 +1109,9 @@ async def close_trade(
     [Free]
 
     Market close by default. Pass limit_price for a resting reduce-only LIMIT
-    close (Aster + Lighter) — returns status "open"; finalize via get_order_fills.
+    close (supported on all tradable DEXes) — returns status "open"; finalize
+    via get_order_fills (on 01xyz, variational and risex fills are
+    position-inferred — verify via get_positions).
 
     Args:
         exchange: Exchange name
@@ -1138,15 +1144,17 @@ async def close_trade(
 
 @mcp.tool()
 async def cancel_order(exchange: str, symbol: str, order_id: str) -> str:
-    """Cancel a resting limit order (Aster + Lighter only).
+    """Cancel a resting limit order (supported on all tradable DEXes).
     [Free]
 
     Args:
         exchange: Exchange name
         symbol: Trading pair the order is on
-        order_id: Cancellable id. Aster: the id returned by open_trade. Lighter:
-            the "market:order_index" id from get_open_orders (the open_trade tx
-            hash is NOT cancellable — list first, then cancel).
+        order_id: Cancellable id. Aster/Hyperliquid/Hibachi: the id returned by
+            open_trade ("symbol:id" / "assetIndex:oid"). Lighter: the
+            "market:order_index" id from get_open_orders (the open_trade tx
+            hash is NOT cancellable — list first, then cancel). Pacifica: the
+            numeric order id from open_trade / get_open_orders.
     """
     try:
         data = await client.post("/mcp/trade/cancel-order", json={
@@ -1162,12 +1170,14 @@ async def cancel_order(exchange: str, symbol: str, order_id: str) -> str:
 
 @mcp.tool()
 async def get_open_orders(exchange: str, symbol: str = "") -> str:
-    """List your resting (unfilled) limit orders on an exchange (Aster + Lighter).
+    """List your resting (unfilled) limit orders on an exchange (all tradable DEXes).
     [Free]
 
     For Lighter a symbol is REQUIRED (it lists active orders per market), and
     the returned order_id ("market:order_index") is exactly what cancel_order
-    needs.
+    needs. For the others the returned order_id is directly cancellable.
+    (Hibachi listing is best-effort via order history — confirm coverage of
+    purely-resting orders on a live account.)
 
     Args:
         exchange: Exchange name
@@ -1284,6 +1294,8 @@ async def twap_open_dn(
 
     Supported on the backend-TWAP DEXes: hyperliquid, extended, pacifica,
     aster, lighter, grvt, hibachi, ethereal, o1xyz, nado, variational (+ HIP-3).
+    NOT supported: hotstuff, risex — use the frontend TWAP (browser open) for
+    those; an unsupported leg here returns a clear error with the live list.
 
     Args:
         symbol: Trading pair (e.g. "ETH/USDC")
@@ -1340,6 +1352,9 @@ async def twap_close_dn(
     legs out over time with per-slice slippage protection. Runs server-side;
     poll with twap_job_status, stop with twap_cancel.
     [Free]
+
+    Same backend-TWAP DEXes as twap_open_dn. NOT supported: hotstuff, risex —
+    use the frontend TWAP for those (an unsupported leg returns a clear error).
 
     Args:
         symbol: Trading pair (e.g. "ETH/USDC")
