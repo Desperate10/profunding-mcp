@@ -109,15 +109,15 @@ The `Auth` column shows whether a tool needs an API key:
 
 | Tool | Auth | Description |
 |------|------|-------------|
-| `open_trade` | key | Open a single-leg position on one DEX — **market, or a resting `limit` order** (`order_type="limit"` + `limit_price`, Aster/Lighter) |
-| `close_trade` | key | Close a single-leg position on one DEX — market, or a resting reduce-only **limit** close (`limit_price`, Aster/Lighter) |
+| `open_trade` | key | Open a single-leg position on one DEX — **market, or a resting `limit` order** (`order_type="limit"` + `limit_price`, all tradable DEXes) |
+| `close_trade` | key | Close a single-leg position on one DEX — market, or a resting reduce-only **limit** close (`limit_price`, all tradable DEXes) |
 | `open_delta_neutral` | key | Open a delta-neutral pair: long one DEX, short another (market) |
 | `close_delta_neutral` | key | Close both legs of a delta-neutral pair (market) |
 | `convert_stablecoin` | key | Convert between USDC / USDT / other stablecoins where supported |
 
 ### Limit Orders (3, key required)
 
-Resting limit orders on **Aster + Lighter**. A limit order from `open_trade` returns immediately with `status="open"` and an order id; manage it with these. **Per-DEX cancel id:** Aster's order id (from `open_trade`) is cancellable directly; **Lighter resting orders must be located via `get_open_orders` first** — the `open_trade` response is a tx hash, not a cancellable id, so list-then-cancel.
+Resting limit orders on **all tradable DEXes** (aster, hyperliquid + HIP-3 sub-DEXes, lighter, pacifica, hibachi, extended, nado, grvt, 01xyz, variational, ethereal, hotstuff, risex). A limit order from `open_trade` returns immediately with `status="open"` and an order id; manage it with these. Extended, nado, grvt, ethereal and risex honor `post_only`. **Per-DEX cancel id:** most DEXes' `open_trade` order id is cancellable directly; **Lighter resting orders must be located via `get_open_orders` first** — its `open_trade` response is a tx hash, not a cancellable id, so list-then-cancel.
 
 | Tool | Auth | Description |
 |------|------|-------------|
