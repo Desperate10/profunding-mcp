@@ -955,7 +955,7 @@ async def store_credentials(exchange: str, credentials: str) -> str:
 
     Args:
         exchange: Exchange name. Supported: Hyperliquid, Lighter, Aster, Pacifica.
-            HIP-3 DEXes (TradeXYZ, DreamCash, etc.) use Hyperliquid credentials.
+            HIP-3 DEXes (TradeXYZ, Hyena, etc.) use Hyperliquid credentials.
         credentials: JSON string with exchange-specific fields:
             Hyperliquid: {"wallet_address": "0x...", "agent_address": "0x...", "agent_private_key": "0x..."}
             Lighter: {"api_private_key": "...", "api_public_key": "...", "account_index": 0}
