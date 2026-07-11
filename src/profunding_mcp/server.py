@@ -214,6 +214,7 @@ async def run_backtest(
     short_exchange: str,
     position_size: float = 1000,
     days: int = 7,
+    fee_bps: int | None = None,
 ) -> str:
     """Backtest a delta-neutral funding arbitrage trade with historical data.
     [Free]
@@ -224,17 +225,24 @@ async def run_backtest(
         short_exchange: Exchange to go short on
         position_size: Position size in USD (default 1000)
         days: Backtest period in days (1-30, default 7)
+        fee_bps: Round-trip execution cost override in BPS. Omit to let the
+            backend use the pair's real optimized fee (same as the dashboard).
     """
     long_exchange = await _normalize_exchange(long_exchange)
     short_exchange = await _normalize_exchange(short_exchange)
-    data = await client.post("/backtest", json={
+    payload = {
         "symbol": symbol,
         "long_exchange": long_exchange,
         "short_exchange": short_exchange,
         "position_size": position_size,
         "days": days,
-        "execution_fee_bps": 10,
-    })
+    }
+    # Only send a fee when the user overrides it — the backend resolves the
+    # pair's real per-pair round-trip cost otherwise (the old hardcoded 10
+    # overstated cheap pairs ~3x vs the web panel).
+    if fee_bps is not None:
+        payload["execution_fee_bps"] = fee_bps
+    data = await client.post("/backtest", json=payload)
 
     pnl = data.get("total_pnl", 0)
     pnl_pct = data.get("pnl_percentage", 0)
@@ -242,12 +250,20 @@ async def run_backtest(
     fees = data.get("total_fees_paid", 0)
     sharpe = data.get("sharpe_ratio", 0)
 
+    fee_used = data.get("execution_fee_bps")
+    fee_note = f" ({fee_used} bps round-trip)" if fee_used is not None else ""
+    days_counted = data.get("days_counted")
+    coverage = (
+        f" [{days_counted}/{days} days had data]"
+        if days_counted is not None and days_counted < days else ""
+    )
+
     result = (
         f"Backtest: {symbol} — Long {long_exchange} / Short {short_exchange}\n"
-        f"  Period: {days} days, Position: ${position_size:,.0f}\n"
+        f"  Period: {days} days{coverage}, Position: ${position_size:,.0f}\n"
         f"  Total PnL: ${pnl:,.2f} ({pnl_pct:+.2f}%)\n"
         f"  Funding received: ${funding:,.2f}\n"
-        f"  Fees paid: ${fees:,.2f}\n"
+        f"  Fees paid: ${fees:,.2f}{fee_note}\n"
         f"  Sharpe ratio: {sharpe:.2f}"
     )
 
@@ -740,13 +756,14 @@ async def analyze_pair(
 
     # Fetch everything in parallel
     opps_task = client.get("/opportunities", params={"symbol": symbol})
+    # No execution_fee_bps: the backend resolves the pair's real optimized
+    # round-trip fee (same number the dashboard shows) when it's omitted.
     backtest_task = client.post("/backtest", json={
         "symbol": symbol,
         "long_exchange": long_exchange,
         "short_exchange": short_exchange,
         "position_size": position_size,
         "days": 7,
-        "execution_fee_bps": 10,
     })
     intel_task = client.get("/analytics/pair-intelligence")
     long_liq_task = client.get(f"/liquidity/{long_exchange}", params={
