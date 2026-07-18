@@ -433,8 +433,8 @@ async def get_record_roi(period: str = "day") -> str:
         f"Record ROI ({period}):\n"
         f"  {result.get('symbol', '?')} — "
         f"Long {result.get('long_exchange', '?')} / Short {result.get('short_exchange', '?')}\n"
-        f"  APR: {result.get('apr', 0):.1f}%\n"
-        f"  ROI on $1000: ${result.get('roi_1k', 0):.2f}"
+        f"  Avg APR: {result.get('avg_apr', 0):.1f}% over {result.get('hours_held', 0)}h\n"
+        f"  ROI: {result.get('roi_pct', 0):.2f}% (${result.get('dollar_roi', 0):.2f} on $1k at 5x)"
     )
 
 
@@ -457,7 +457,7 @@ async def get_still_paying(min_hours: int = 24) -> str:
     for r in results[:10]:
         lines.append(
             f"  {r.get('symbol', '?')} — {r.get('long_exchange', '?')}/{r.get('short_exchange', '?')} — "
-            f"{r.get('hours', 0)}h streak, {r.get('apr', 0):.1f}% APR"
+            f"{r.get('hours_above_50', 0)}h streak, {r.get('avg_apr', 0):.1f}% avg APR"
         )
 
     return "\n".join(lines)
@@ -482,7 +482,7 @@ async def get_top_holders(days: int = 7) -> str:
     for r in results[:5]:
         lines.append(
             f"  {r.get('symbol', '?')} — {r.get('long_exchange', '?')}/{r.get('short_exchange', '?')} — "
-            f"{r.get('hours', 0)}h above threshold"
+            f"{r.get('hours_above_50', 0)}h above 50% APR (avg {r.get('avg_apr', 0):.1f}%)"
         )
 
     return "\n".join(lines)
@@ -530,17 +530,36 @@ async def get_weekly_recap(days: int = 7) -> str:
 
     lines = [f"Weekly recap (last {days} days):\n"]
 
-    if result.get("best_roi"):
-        roi = result["best_roi"]
-        lines.append(f"  Best ROI: {roi.get('symbol', '?')} — {roi.get('apr', 0):.1f}% APR")
+    best_roi = result.get("best_roi") or []
+    if isinstance(best_roi, dict):
+        best_roi = [best_roi]
+    if best_roi:
+        lines.append("  Best ROI pairs:")
+        for roi in best_roi[:3]:
+            lines.append(
+                f"    {roi.get('symbol', '?')} — {roi.get('long_exchange', '?')}/{roi.get('short_exchange', '?')} — "
+                f"{roi.get('avg_apr', 0):.1f}% avg APR, {roi.get('hours_above_50', 0)}h above 50% "
+                f"(${roi.get('dollar_roi', 0):.2f} on $1k at 5x)"
+            )
 
-    if result.get("best_dex_combo"):
-        combo = result["best_dex_combo"]
-        lines.append(f"  Best DEX combo: {combo.get('long', '?')}/{combo.get('short', '?')}")
+    combos = result.get("best_dex_combos") or []
+    if combos:
+        top = combos[0]
+        lines.append(
+            f"  Best DEX combo: Long {top.get('long_exchange', '?')} / Short {top.get('short_exchange', '?')} "
+            f"({top.get('opportunities', 0)} opportunity-hours above 30% APR)"
+        )
 
     if result.get("most_stable"):
         stable = result["most_stable"]
-        lines.append(f"  Most stable: {stable.get('symbol', '?')} — {stable.get('std', 0):.1f}% std dev")
+        lines.append(
+            f"  Most stable: {stable.get('symbol', '?')} — "
+            f"{stable.get('long_exchange', '?')}/{stable.get('short_exchange', '?')} — "
+            f"{stable.get('hours_above_30', 0)}h above 30% APR (avg {stable.get('avg_apr', 0):.1f}%)"
+        )
+
+    if len(lines) == 1:
+        return f"No recap data for the last {days} days."
 
     return "\n".join(lines)
 
@@ -571,9 +590,10 @@ async def get_unbroken_streaks(mode: str = "top5") -> str:
 
     lines = [f"Unbroken streaks ({mode}):\n"]
     for r in results[:10]:
+        status = "still live" if r.get("still_live") else "ended"
         lines.append(
             f"  {r.get('symbol', '?')} — {r.get('long_exchange', '?')}/{r.get('short_exchange', '?')} — "
-            f"{r.get('hours', 0)}h streak at {r.get('apr', 0):.1f}% APR"
+            f"{r.get('hours_held', 0)}h streak at {r.get('avg_apr', 0):.1f}% avg APR ({status})"
         )
 
     return "\n".join(lines)
@@ -594,7 +614,7 @@ async def get_live_alpha() -> str:
     for r in results[:5]:
         lines.append(
             f"  {r.get('symbol', '?')} — Long {r.get('long_exchange', '?')} / "
-            f"Short {r.get('short_exchange', '?')} — {r.get('apr', 0):.1f}% APR"
+            f"Short {r.get('short_exchange', '?')} — {r.get('net_apr', 0):.1f}% net APR"
         )
 
     return "\n".join(lines)
