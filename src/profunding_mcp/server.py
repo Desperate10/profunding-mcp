@@ -734,8 +734,19 @@ async def check_liquidity(
 
     if data.get("volume_24h"):
         lines.append(f"  24h volume: ${data['volume_24h']:,.0f}")
+    # `open_interest` is BASE asset units; `open_interest_usd` is the notional.
+    # Print the USD figure when the backend supplies it, and always label the
+    # base figure — never format the raw base number with a "$" (that read as
+    # "$52 of BTC open interest" on a venue actually carrying ~$3.4M).
     if data.get("open_interest"):
-        lines.append(f"  Open interest: ${data['open_interest']:,.0f}")
+        base_unit = symbol.split("/")[0]
+        oi_usd = data.get("open_interest_usd")
+        if oi_usd:
+            lines.append(
+                f"  Open interest: ${oi_usd:,.0f} ({data['open_interest']:,.4g} {base_unit})"
+            )
+        else:
+            lines.append(f"  Open interest: {data['open_interest']:,.4g} {base_unit}")
 
     depth = data.get("depth", {})
     if depth:
