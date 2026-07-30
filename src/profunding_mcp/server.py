@@ -1002,8 +1002,12 @@ async def store_credentials(exchange: str, credentials: str) -> str:
     For maximum security, use the web form at profunding.pro/keys instead.
 
     Args:
-        exchange: Exchange name. Supported: Hyperliquid, Lighter, Aster, Pacifica.
-            HIP-3 DEXes (TradeXYZ, Hyena, etc.) use Hyperliquid credentials.
+        exchange: Exchange name. Supported: Hyperliquid, Lighter, Aster, Pacifica,
+            Extended, Hibachi, Nado, Ethereal, GRVT, Variational, 01xyz, HotStuff,
+            RiseX, Ondo, Perpl, Phoenix. HIP-3 DEXes (TradeXYZ, Hyena, etc.) use
+            Hyperliquid credentials. Only the four shapes below are documented
+            here; for the rest use the web form at profunding.pro/keys, which
+            knows every venue's required fields.
         credentials: JSON string with exchange-specific fields:
             Hyperliquid: {"wallet_address": "0x...", "agent_address": "0x...", "agent_private_key": "0x..."}
             Lighter: {"api_private_key": "...", "api_public_key": "...", "account_index": 0}
@@ -1089,11 +1093,16 @@ async def open_trade(
     Market by default. For a RESTING limit order set order_type="limit" and
     limit_price (supported on ALL tradable DEXes — aster, hyperliquid (+ HIP-3
     sub-DEXes), lighter, pacifica, hibachi, extended, nado, grvt, 01xyz,
-    variational, ethereal, hotstuff, risex; an unsupported exchange returns a
-    clear error listing the live set; Extended, nado, grvt, ethereal and risex
-    honor post_only): it returns immediately with status "open" and an order id —
-    then manage it with get_open_orders, cancel_order and get_order_fills. size_usd
-    is converted to size at the limit price.
+    variational, ethereal, hotstuff, risex, perpl, phoenix; an unsupported
+    exchange returns a clear error listing the live set; Extended, nado, grvt,
+    ethereal, risex and phoenix honor post_only): it returns immediately with
+    status "open" and an order id — then manage it with get_open_orders,
+    cancel_order and get_order_fills. size_usd is converted to size at the limit
+    price.
+
+    On phoenix, get_order_fills is exact while the order is still resting but
+    reports "unknown" once it leaves the book: Phoenix publishes no per-order fill
+    history, so a filled and a cancelled order are indistinguishable there.
 
     Args:
         exchange: Exchange name (e.g. "Hyperliquid", "Lighter", "Aster")
@@ -1202,7 +1211,10 @@ async def cancel_order(exchange: str, symbol: str, order_id: str) -> str:
             open_trade ("symbol:id" / "assetIndex:oid"). Lighter: the
             "market:order_index" id from get_open_orders (the open_trade tx
             hash is NOT cancellable — list first, then cancel). Pacifica: the
-            numeric order id from open_trade / get_open_orders.
+            numeric order id from open_trade / get_open_orders. Phoenix: the
+            "SYMBOL|priceInTicks|sequence" id from open_trade / get_open_orders
+            (a market order's id is a Solana signature and cannot be cancelled —
+            it was immediate-or-cancel and is already settled).
     """
     try:
         data = await client.post("/mcp/trade/cancel-order", json={
@@ -1341,9 +1353,9 @@ async def twap_open_dn(
     [Free]
 
     Supported on the backend-TWAP DEXes: hyperliquid, extended, pacifica,
-    aster, lighter, grvt, hibachi, ethereal, o1xyz, nado, variational (+ HIP-3).
-    NOT supported: hotstuff, risex — use the frontend TWAP (browser open) for
-    those; an unsupported leg here returns a clear error with the live list.
+    aster, lighter, grvt, hibachi, ethereal, 01xyz, nado, variational, hotstuff,
+    risex, perpl, phoenix (+ HIP-3). An unsupported leg returns a clear error
+    with the live list, which is always authoritative over this one.
 
     Args:
         symbol: Trading pair (e.g. "ETH/USDC")
