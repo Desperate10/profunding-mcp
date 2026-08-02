@@ -109,15 +109,15 @@ The `Auth` column shows whether a tool needs an API key:
 
 | Tool | Auth | Description |
 |------|------|-------------|
-| `open_trade` | key | Open a single-leg position on one DEX — **market, or a resting `limit` order** (`order_type="limit"` + `limit_price`, all tradable DEXes) |
-| `close_trade` | key | Close a single-leg position on one DEX — market, or a resting reduce-only **limit** close (`limit_price`, all tradable DEXes) |
+| `open_trade` | key | Open a single-leg position on one DEX — **market, or a resting `limit` order** (`order_type="limit"` + `limit_price`, every tradable DEX except ondo) |
+| `close_trade` | key | Close a single-leg position on one DEX — market, or a resting reduce-only **limit** close (`limit_price`, every tradable DEX except ondo) |
 | `open_delta_neutral` | key | Open a delta-neutral pair: long one DEX, short another (market) |
 | `close_delta_neutral` | key | Close both legs of a delta-neutral pair (market) |
 | `convert_stablecoin` | key | Convert between USDC / USDT / other stablecoins where supported |
 
 ### Limit Orders (3, key required)
 
-Resting limit orders on **all tradable DEXes** (aster, hyperliquid + HIP-3 sub-DEXes, lighter, pacifica, hibachi, extended, nado, grvt, 01xyz, variational, ethereal, hotstuff, risex). A limit order from `open_trade` returns immediately with `status="open"` and an order id; manage it with these. Extended, nado, grvt, ethereal and risex honor `post_only`. **Per-DEX cancel id:** most DEXes' `open_trade` order id is cancellable directly; **Lighter resting orders must be located via `get_open_orders` first** — its `open_trade` response is a tx hash, not a cancellable id, so list-then-cancel.
+Resting limit orders on **every tradable DEX except ondo**, which is market-order only (aster, hyperliquid + HIP-3 sub-DEXes, lighter, pacifica, hibachi, extended, nado, grvt, 01xyz, variational, ethereal, hotstuff, risex, perpl, phoenix). A limit order from `open_trade` returns immediately with `status="open"` and an order id; manage it with these. `post_only` is honored on all of them **except lighter, 01xyz and variational**, where it is accepted but not enforceable — the order rests as a plain GTT that may take if marketable, and the response carries a warning saying so. **Per-DEX cancel id:** most DEXes' `open_trade` order id is cancellable directly; **Lighter resting orders must be located via `get_open_orders` first** — its `open_trade` response is a tx hash, not a cancellable id, so list-then-cancel.
 
 | Tool | Auth | Description |
 |------|------|-------------|
