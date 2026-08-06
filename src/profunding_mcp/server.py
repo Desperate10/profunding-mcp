@@ -1091,16 +1091,23 @@ async def open_trade(
     [Free]
 
     Market by default. For a RESTING limit order set order_type="limit" and
-    limit_price. Supported on every tradable DEX EXCEPT ondo, which is
-    market-order only: aster, hyperliquid (+ HIP-3 sub-DEXes), lighter, pacifica,
-    hibachi, extended, nado, grvt, 01xyz, variational, ethereal, hotstuff, risex,
-    perpl, phoenix. An unsupported exchange returns a clear error listing the
-    live set. post_only is honored on all of those except lighter, 01xyz and
-    variational, where it is accepted but NOT enforceable — the order rests as a
-    plain GTT that may take if marketable, and the response carries a warning
-    saying so. A limit order returns immediately with status "open" and an order
-    id — then manage it with get_open_orders, cancel_order and get_order_fills.
-    size_usd is converted to size at the limit price.
+    limit_price. Supported on EVERY tradable DEX: aster, hyperliquid (+ HIP-3
+    sub-DEXes), lighter, pacifica, hibachi, extended, nado, grvt, 01xyz,
+    variational, ethereal, hotstuff, risex, perpl, phoenix, ondo. An unsupported
+    exchange returns a clear error listing the live set. post_only is honored on
+    all of them except lighter, 01xyz and variational, where it is accepted but
+    NOT enforceable — the order rests as a plain GTT that may take if marketable,
+    and the response carries a warning saying so. A limit order returns
+    immediately with status "open" and an order id — then manage it with
+    get_open_orders, cancel_order and get_order_fills. size_usd is converted to
+    size at the limit price.
+
+    On ondo post_only is enforced by REJECTION: a would-cross order fails with
+    post_only_has_match instead of taking, so that error means "your price
+    crossed" — reprice and retry, do not treat it as the venue being down. A
+    reduce-only limit there is EMULATED, because reduce-only cannot ride a GTC
+    limit: the size is capped to the live position at placement, so a plain
+    limit can only reduce, never flip or open.
 
     On phoenix, get_order_fills is exact while the order is still resting but
     reports "unknown" once it leaves the book: Phoenix publishes no per-order fill
@@ -1168,8 +1175,7 @@ async def close_trade(
     [Free]
 
     Market close by default. Pass limit_price for a resting reduce-only LIMIT
-    close (every tradable DEX except ondo, which is market-order only) —
-    returns status "open"; finalize
+    close (every tradable DEX) — returns status "open"; finalize
     via get_order_fills (on 01xyz, variational and risex fills are
     position-inferred — verify via get_positions).
 
@@ -1204,8 +1210,7 @@ async def close_trade(
 
 @mcp.tool()
 async def cancel_order(exchange: str, symbol: str, order_id: str) -> str:
-    """Cancel a resting limit order (every tradable DEX except ondo, which is
-    market-order only and so never has one).
+    """Cancel a resting limit order (every tradable DEX).
     [Free]
 
     Args:
@@ -1235,7 +1240,7 @@ async def cancel_order(exchange: str, symbol: str, order_id: str) -> str:
 @mcp.tool()
 async def get_open_orders(exchange: str, symbol: str = "") -> str:
     """List your resting (unfilled) limit orders on an exchange (every tradable
-    DEX except ondo, which is market-order only).
+    DEX).
     [Free]
 
     For Lighter a symbol is REQUIRED (it lists active orders per market), and
