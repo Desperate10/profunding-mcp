@@ -127,7 +127,7 @@ Resting limit orders on **every tradable DEX** (aster, hyperliquid + HIP-3 sub-D
 
 ### TWAP (5, key required)
 
-Backend-orchestrated TWAP that slices a delta-neutral **open** or **close** over time with per-slice slippage protection. Runs server-side (no client needed) — start it, then poll. Supported DEXes: hyperliquid, extended, pacifica, aster, lighter, grvt, hibachi, ethereal, o1xyz, nado, variational (+ HIP-3).
+Backend-orchestrated TWAP that slices a delta-neutral **open** or **close** over time with per-slice slippage protection. Runs server-side (no client needed) — start it, then poll. Supported DEXes: hyperliquid, extended, pacifica, aster, lighter, grvt, hibachi, ethereal, 01xyz, nado, variational (+ HIP-3).
 
 | Tool | Auth | Description |
 |------|------|-------------|
