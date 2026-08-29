@@ -1533,6 +1533,11 @@ async def open_delta_neutral(
     Both legs are market orders. On partial failure, the successful leg is NOT auto-closed.
     [Free]
 
+    Refused when either venue already holds that side of this symbol, since the
+    venue merges them into one on-chain leg and both positions' funding and PnL
+    become approximate. There is no override — report the refusal and let the
+    user close that leg on the venue or choose a different venue for it.
+
     Args:
         symbol: Trading pair (e.g. "ETH/USDC")
         long_exchange: Exchange to go long on (the one paying you negative funding)
