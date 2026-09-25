@@ -73,6 +73,20 @@ async def _normalize_exchange(name: str) -> str:
     return canonical if canonical else name
 
 
+def _put_wallet(target: dict, field: str, wallet: str | None) -> None:
+    """Name a wallet on a request only when the caller named one.
+
+    An account can hold a venue's credential from several wallets at once; the
+    backend reads `signer_address` (one leg) / `long_signer_address` +
+    `short_signer_address` (a pair) to pick which. An ABSENT field is the
+    venue's default wallet — exactly what every call sent before wallets were
+    selectable — so an omitted or blank wallet must send nothing at all.
+    """
+    w = (wallet or "").strip()
+    if w:
+        target[field] = w
+
+
 def _fmt_opp(o: dict) -> str:
     """Format a single opportunity for display."""
     line = (
@@ -1032,33 +1046,56 @@ async def store_credentials(exchange: str, credentials: str) -> str:
 
 @mcp.tool()
 async def list_credentials() -> str:
-    """List exchanges where you have stored credentials for AI trading.
+    """List exchanges where you have stored credentials for AI trading — every
+    wallet connected to each venue, with the venue's default wallet marked ★.
     [Free]
+
+    A venue can be connected from several wallets at once, each its own venue
+    account. The addresses listed here are what the `wallet` / `long_wallet` /
+    `short_wallet` parameters of the trading tools accept; a call that names no
+    wallet uses the ★ default.
     """
     try:
-        data = await client.get("/credentials")
+        # ?all=1: every wallet's credential, several per venue, each flagged
+        # is_default. Without it the backend returns only the defaults.
+        data = await client.get("/credentials", params={"all": "true"})
         if not data:
             return "No credentials stored. Use store_credentials to add exchange keys."
-        lines = ["Stored credentials:"]
+        lines = ["Stored credentials (★ = the venue's default wallet):"]
         for c in data:
             status = "enabled" if c["enabled"] else "DISABLED"
-            last = c.get("last_used_at", "never")
-            lines.append(f"  {c['exchange']} — {status}, last used: {last}")
+            if c.get("stale"):
+                reason = c.get("stale_reason")
+                status += f", STALE ({reason})" if reason else ", STALE"
+            last = c.get("last_used_at") or "never"
+            mark = "★" if c.get("is_default", True) else " "
+            # None on a row stored before credentials recorded their wallet
+            # (an unhealed Extended key) — usable only as the default.
+            signer = c.get("signer_address") or "not recorded"
+            lines.append(
+                f"  {mark} {c['exchange']} — wallet {signer} — "
+                f"{status}, last used: {last}"
+            )
         return "\n".join(lines)
     except Exception as e:
         return f"Failed to list credentials: {e}"
 
 
 @mcp.tool()
-async def revoke_credentials(exchange: str) -> str:
+async def revoke_credentials(exchange: str, wallet: str | None = None) -> str:
     """Remove stored credentials for an exchange. This stops AI trading on that exchange.
     [Free]
 
     Args:
         exchange: Exchange name to revoke credentials for.
+        wallet: revoke only the credential of this wallet address (when it was the
+            ★ default, the most recently used remaining wallet takes over);
+            omitted = EVERY wallet's credential for the venue. See list_credentials.
     """
     try:
-        data = await client.delete(f"/credentials/{exchange}")
+        params: dict = {}
+        _put_wallet(params, "signer_address", wallet)
+        data = await client.delete(f"/credentials/{exchange}", params=params or None)
         return f"Credentials revoked for {data.get('exchange', exchange)}."
     except Exception as e:
         return f"Failed to revoke credentials: {e}"
@@ -1086,6 +1123,7 @@ async def open_trade(
     order_type: str = "market",
     limit_price: float | None = None,
     post_only: bool = False,
+    wallet: str | None = None,
 ) -> str:
     """Open a single trade on an exchange using stored credentials.
     [Free]
@@ -1122,6 +1160,9 @@ async def open_trade(
         order_type: "market" (default) or "limit"
         limit_price: Required when order_type="limit" — the resting price
         post_only: Request maker-only (Aster uses GTX; ignored on Lighter)
+        wallet: the address of the wallet whose venue account to use, when the venue
+            is connected from several wallets; omitted = the venue's default (★)
+            wallet. See list_credentials.
     """
     body = {
         "exchange": exchange,
@@ -1136,6 +1177,7 @@ async def open_trade(
             return "Error: limit_price is required when order_type='limit'."
         body["limit_price"] = limit_price
         body["post_only"] = post_only
+    _put_wallet(body, "signer_address", wallet)
     try:
         data = await client.post("/mcp/trade/open", json=body)
         status = data.get("status")
@@ -1170,6 +1212,7 @@ async def open_trade(
 @mcp.tool()
 async def close_trade(
     exchange: str, symbol: str, side: str, limit_price: float | None = None,
+    wallet: str | None = None,
 ) -> str:
     """Close an open position on an exchange using stored credentials.
     [Free]
@@ -1184,10 +1227,14 @@ async def close_trade(
         symbol: Trading pair (e.g. "ETH/USDC")
         side: "long" or "short" — the side you want to close
         limit_price: If set, place a resting reduce-only limit close at this price
+        wallet: the address of the wallet whose venue account to use, when the venue
+            is connected from several wallets; omitted = the venue's default (★)
+            wallet. See list_credentials.
     """
     body = {"exchange": exchange, "symbol": symbol, "side": side}
     if limit_price is not None:
         body["limit_price"] = limit_price
+    _put_wallet(body, "signer_address", wallet)
     try:
         data = await client.post("/mcp/trade/close", json=body)
         status = data.get("status")
@@ -1209,7 +1256,9 @@ async def close_trade(
 
 
 @mcp.tool()
-async def cancel_order(exchange: str, symbol: str, order_id: str) -> str:
+async def cancel_order(
+    exchange: str, symbol: str, order_id: str, wallet: str | None = None,
+) -> str:
     """Cancel a resting limit order (every tradable DEX).
     [Free]
 
@@ -1224,13 +1273,14 @@ async def cancel_order(exchange: str, symbol: str, order_id: str) -> str:
             "SYMBOL|priceInTicks|sequence" id from open_trade / get_open_orders
             (a market order's id is a Solana signature and cannot be cancelled —
             it was immediate-or-cancel and is already settled).
+        wallet: the address of the wallet whose venue account to use (the one the
+            order was placed with), when the venue is connected from several
+            wallets; omitted = the venue's default (★) wallet. See list_credentials.
     """
+    body = {"exchange": exchange, "symbol": symbol, "order_id": order_id}
+    _put_wallet(body, "signer_address", wallet)
     try:
-        data = await client.post("/mcp/trade/cancel-order", json={
-            "exchange": exchange,
-            "symbol": symbol,
-            "order_id": order_id,
-        })
+        data = await client.post("/mcp/trade/cancel-order", json=body)
         ok = data.get("success")
         return f"Cancel {'OK' if ok else data.get('status')} for {order_id} on {exchange}."
     except Exception as e:
@@ -1238,7 +1288,9 @@ async def cancel_order(exchange: str, symbol: str, order_id: str) -> str:
 
 
 @mcp.tool()
-async def get_open_orders(exchange: str, symbol: str = "") -> str:
+async def get_open_orders(
+    exchange: str, symbol: str = "", wallet: str | None = None,
+) -> str:
     """List your resting (unfilled) limit orders on an exchange (every tradable
     DEX).
     [Free]
@@ -1252,11 +1304,15 @@ async def get_open_orders(exchange: str, symbol: str = "") -> str:
     Args:
         exchange: Exchange name
         symbol: Trading pair (required for Lighter)
+        wallet: the address of the wallet whose venue account to use, when the venue
+            is connected from several wallets; omitted = the venue's default (★)
+            wallet. See list_credentials.
     """
     try:
         params = {"exchange": exchange}
         if symbol:
             params["symbol"] = symbol
+        _put_wallet(params, "signer_address", wallet)
         data = await client.get("/mcp/trade/open-orders", params=params)
         if not data:
             return "No resting orders."
@@ -1275,6 +1331,7 @@ async def get_open_orders(exchange: str, symbol: str = "") -> str:
 @mcp.tool()
 async def get_order_fills(
     exchange: str, symbol: str, order_id: str, trade_log_id: int = 0,
+    wallet: str | None = None,
 ) -> str:
     """Check whether a limit order filled, and finalize fee accounting.
     Call after an order disappears from get_open_orders.
@@ -1286,11 +1343,15 @@ async def get_order_fills(
         order_id: Lighter: the tx hash from open_trade. Aster: the id from open_trade.
         trade_log_id: The trade_log_id from open_trade's response (optional, but
             required to finalize builder-fee accounting on the fill)
+        wallet: the address of the wallet whose venue account to use (the one the
+            order was placed with), when the venue is connected from several
+            wallets; omitted = the venue's default (★) wallet. See list_credentials.
     """
     try:
         params = {"exchange": exchange, "symbol": symbol, "order_id": order_id}
         if trade_log_id:
             params["trade_log_id"] = trade_log_id
+        _put_wallet(params, "signer_address", wallet)
         data = await client.get("/mcp/trade/order-fills", params=params)
         return (
             f"Order {order_id} on {exchange}:\n"
@@ -1356,6 +1417,8 @@ async def twap_open_dn(
     size_randomization: float = 0.0,
     interval_randomization: float = 0.0,
     max_consecutive_skips: int = 3,
+    long_wallet: str | None = None,
+    short_wallet: str | None = None,
 ) -> str:
     """Open a delta-neutral position GRADUALLY via backend TWAP — slices into
     both legs over time with per-slice slippage protection. Runs server-side
@@ -1379,19 +1442,26 @@ async def twap_open_dn(
         size_randomization: 0–0.5 stealth jitter on slice size
         interval_randomization: 0–0.5 stealth jitter on slice timing
         max_consecutive_skips: abort after N consecutive skips (default 3)
+        long_wallet: the address of the wallet whose venue account to use for the LONG
+            leg, when that venue is connected from several wallets; omitted = the
+            venue's default (★) wallet. See list_credentials.
+        short_wallet: the same, for the SHORT leg.
     """
+    body = {
+        "symbol": symbol,
+        "long_exchange": long_exchange,
+        "short_exchange": short_exchange,
+        "target_margin_usd": target_margin_usd,
+        "leverage": leverage,
+        "config": _twap_config(
+            total_slices, duration_minutes, max_slippage_bps,
+            size_randomization, interval_randomization, max_consecutive_skips,
+        ),
+    }
+    _put_wallet(body, "long_signer_address", long_wallet)
+    _put_wallet(body, "short_signer_address", short_wallet)
     try:
-        data = await client.post("/trade/twap-open-dn", json={
-            "symbol": symbol,
-            "long_exchange": long_exchange,
-            "short_exchange": short_exchange,
-            "target_margin_usd": target_margin_usd,
-            "leverage": leverage,
-            "config": _twap_config(
-                total_slices, duration_minutes, max_slippage_bps,
-                size_randomization, interval_randomization, max_consecutive_skips,
-            ),
-        })
+        data = await client.post("/trade/twap-open-dn", json=body)
         return (
             f"TWAP-open started (job {data.get('id')}):\n"
             f"  {symbol} — Long {long_exchange} / Short {short_exchange}\n"
@@ -1417,6 +1487,8 @@ async def twap_close_dn(
     size_randomization: float = 0.0,
     interval_randomization: float = 0.0,
     max_consecutive_skips: int = 3,
+    long_wallet: str | None = None,
+    short_wallet: str | None = None,
 ) -> str:
     """Close a delta-neutral position GRADUALLY via backend TWAP — slices both
     legs out over time with per-slice slippage protection. Runs server-side;
@@ -1439,6 +1511,12 @@ async def twap_close_dn(
         size_randomization: 0–0.5 stealth jitter on slice size
         interval_randomization: 0–0.5 stealth jitter on slice timing
         max_consecutive_skips: abort after N consecutive skips (default 3)
+        long_wallet: the address of the wallet whose venue account holds the LONG
+            leg, when that venue is connected from several wallets; omitted = the
+            wallet the position records (the venue's default (★) wallet when
+            there is no record). If the same pair is open on two wallets the
+            call is refused until you name them. See list_credentials.
+        short_wallet: the same, for the SHORT leg.
     """
     body = {
         "symbol": symbol,
@@ -1453,6 +1531,8 @@ async def twap_close_dn(
     }
     if leverage is not None:
         body["leverage"] = leverage
+    _put_wallet(body, "long_signer_address", long_wallet)
+    _put_wallet(body, "short_signer_address", short_wallet)
     try:
         data = await client.post("/trade/twap-close-dn", json=body)
         return (
@@ -1528,6 +1608,8 @@ async def open_delta_neutral(
     short_exchange: str,
     size_usd: float = 1000,
     leverage: int = 5,
+    long_wallet: str | None = None,
+    short_wallet: str | None = None,
 ) -> str:
     """Open a delta-neutral funding arbitrage position — long on one exchange, short on another.
     Both legs are market orders. On partial failure, the successful leg is NOT auto-closed.
@@ -1544,15 +1626,22 @@ async def open_delta_neutral(
         short_exchange: Exchange to go short on (the one paying you positive funding)
         size_usd: Size per leg in USD (default 1000)
         leverage: Leverage multiplier (default 5)
+        long_wallet: the address of the wallet whose venue account to use for the LONG
+            leg, when that venue is connected from several wallets; omitted = the
+            venue's default (★) wallet. See list_credentials.
+        short_wallet: the same, for the SHORT leg.
     """
+    body = {
+        "symbol": symbol,
+        "long_exchange": long_exchange,
+        "short_exchange": short_exchange,
+        "size_usd": size_usd,
+        "leverage": leverage,
+    }
+    _put_wallet(body, "long_signer_address", long_wallet)
+    _put_wallet(body, "short_signer_address", short_wallet)
     try:
-        data = await client.post("/mcp/trade/open-dn", json={
-            "symbol": symbol,
-            "long_exchange": long_exchange,
-            "short_exchange": short_exchange,
-            "size_usd": size_usd,
-            "leverage": leverage,
-        })
+        data = await client.post("/mcp/trade/open-dn", json=body)
 
         status = data.get("status", "unknown")
         lines = [f"Delta-neutral position: {status.upper()}"]
@@ -1587,6 +1676,8 @@ async def close_delta_neutral(
     long_exchange: str = "",
     short_exchange: str = "",
     position_id: str = "",
+    long_wallet: str | None = None,
+    short_wallet: str | None = None,
 ) -> str:
     """Close a delta-neutral position (both legs). Provide either position_id or symbol+exchanges.
     [Free]
@@ -1596,6 +1687,13 @@ async def close_delta_neutral(
         long_exchange: Exchange where you're long
         short_exchange: Exchange where you're short
         position_id: Server position ID (alternative to symbol+exchanges)
+        long_wallet: the address of the wallet whose venue account holds the LONG
+            leg, when that venue is connected from several wallets; omitted = the
+            wallet the position records (the venue's default (★) wallet when
+            there is no record). If the same pair is open on two wallets the
+            call is refused until you name them. A position_id already names
+            its wallets. See list_credentials.
+        short_wallet: the same, for the SHORT leg.
     """
     body = {}
     if position_id:
@@ -1604,6 +1702,8 @@ async def close_delta_neutral(
         body["symbol"] = symbol
         body["long_exchange"] = long_exchange
         body["short_exchange"] = short_exchange
+    _put_wallet(body, "long_signer_address", long_wallet)
+    _put_wallet(body, "short_signer_address", short_wallet)
 
     try:
         data = await client.post("/mcp/trade/close-dn", json=body)
@@ -1624,18 +1724,22 @@ async def close_delta_neutral(
 
 
 @mcp.tool()
-async def get_positions(exchange: str = "") -> str:
+async def get_positions(exchange: str = "", wallet: str | None = None) -> str:
     """List open positions. If exchange specified, queries that DEX's live API.
     Otherwise shows server-tracked delta-neutral positions.
     [Free]
 
     Args:
         exchange: Optional exchange name. If empty, shows DN positions from server.
+        wallet: the address of the wallet whose venue account to use, when the venue
+            is connected from several wallets; omitted = the venue's default (★)
+            wallet. Only read with an exchange. See list_credentials.
     """
     try:
         params = {}
         if exchange:
             params["exchange"] = exchange
+            _put_wallet(params, "signer_address", wallet)
         data = await client.get("/mcp/trade/positions", params=params)
 
         if not data:
@@ -1650,6 +1754,13 @@ async def get_positions(exchange: str = "") -> str:
                     f"    Size: ${p['size_usd']}, Status: {p['status']}, "
                     f"Opened: {p.get('opened_at', 'N/A')}"
                 )
+                # The wallet each leg trades on — what long_wallet /
+                # short_wallet take when the same pair is open on two wallets.
+                if p.get("long_signer_address") or p.get("short_signer_address"):
+                    lines.append(
+                        f"    Wallets: long {p.get('long_signer_address') or 'default'}"
+                        f" / short {p.get('short_signer_address') or 'default'}"
+                    )
             else:
                 # Single exchange position
                 lines.append(
@@ -1664,15 +1775,20 @@ async def get_positions(exchange: str = "") -> str:
 
 
 @mcp.tool()
-async def get_balance(exchange: str) -> str:
+async def get_balance(exchange: str, wallet: str | None = None) -> str:
     """Check your balance on an exchange using stored credentials.
     [Free]
 
     Args:
         exchange: Exchange name (e.g. "Hyperliquid", "Lighter")
+        wallet: the address of the wallet whose venue account to use, when the venue
+            is connected from several wallets; omitted = the venue's default (★)
+            wallet. See list_credentials.
     """
     try:
-        data = await client.get("/mcp/trade/balance", params={"exchange": exchange})
+        params = {"exchange": exchange}
+        _put_wallet(params, "signer_address", wallet)
+        data = await client.get("/mcp/trade/balance", params=params)
         lines = [f"Balance on {data.get('exchange', exchange)}:"]
         spot = data.get("spot_balances", [])
         if spot:
@@ -1735,6 +1851,8 @@ async def watch_position(
     close_on_trigger: bool = False,
     spread_divergence_alert: bool = False,
     spread_divergence_max_drift_pct: float = 10.0,
+    long_wallet: str | None = None,
+    short_wallet: str | None = None,
 ) -> str:
     """Set up backend monitoring for a delta-neutral position.
     The system checks conditions every 60 seconds and can auto-close or alert via Telegram.
@@ -1752,21 +1870,30 @@ async def watch_position(
         close_on_trigger: If true + auto_close, positions are closed automatically on trigger. If false, only alerts.
         spread_divergence_alert: Emergency alert when the absolute spread between long and short legs widens past entry by more than spread_divergence_max_drift_pct (default: false). Captures entry spread at watch creation; fires after 3 consecutive cycles of breach.
         spread_divergence_max_drift_pct: Threshold in absolute spread-percent points (default: 10). Range 1-50. Only relevant when spread_divergence_alert=true.
+        long_wallet: the address of the wallet whose venue account holds the LONG
+            leg, when that venue is connected from several wallets; omitted = the
+            wallet the position records (the venue's default (★) wallet when
+            there is no record). If the same pair is open on two wallets the
+            call is refused until you name them. See list_credentials.
+        short_wallet: the same, for the SHORT leg.
     """
+    body = {
+        "symbol": symbol,
+        "long_exchange": long_exchange,
+        "short_exchange": short_exchange,
+        "funding_flip_alert": funding_flip_alert,
+        "min_apr_threshold": min_apr_threshold,
+        "pnl_threshold_pct": pnl_threshold_pct,
+        "max_duration_hours": max_duration_hours,
+        "auto_close": auto_close,
+        "close_on_trigger": close_on_trigger,
+        "spread_divergence_alert": spread_divergence_alert,
+        "spread_divergence_max_drift_pct": spread_divergence_max_drift_pct,
+    }
+    _put_wallet(body, "long_signer_address", long_wallet)
+    _put_wallet(body, "short_signer_address", short_wallet)
     try:
-        data = await client.post("/mcp/trade/watch", json={
-            "symbol": symbol,
-            "long_exchange": long_exchange,
-            "short_exchange": short_exchange,
-            "funding_flip_alert": funding_flip_alert,
-            "min_apr_threshold": min_apr_threshold,
-            "pnl_threshold_pct": pnl_threshold_pct,
-            "max_duration_hours": max_duration_hours,
-            "auto_close": auto_close,
-            "close_on_trigger": close_on_trigger,
-            "spread_divergence_alert": spread_divergence_alert,
-            "spread_divergence_max_drift_pct": spread_divergence_max_drift_pct,
-        })
+        data = await client.post("/mcp/trade/watch", json=body)
 
         lines = [
             f"Position watch created (ID: {data.get('watch_id', 'N/A')})",
@@ -1812,6 +1939,8 @@ async def find_exit_preview(
     symbol: str,
     long_exchange: str,
     short_exchange: str,
+    long_wallet: str | None = None,
+    short_wallet: str | None = None,
 ) -> str:
     """Forecast a Find-the-Exit job before submitting.
 
@@ -1826,13 +1955,22 @@ async def find_exit_preview(
         symbol: Trading pair (e.g. "ETH/USDC")
         long_exchange: Exchange where the long leg sits
         short_exchange: Exchange where the short leg sits
+        long_wallet: the address of the wallet whose venue account holds the LONG
+            leg, when that venue is connected from several wallets; omitted = the
+            wallet the position records (the venue's default (★) wallet when
+            there is no record). If the same pair is open on two wallets the
+            call is refused until you name them. See list_credentials.
+        short_wallet: the same, for the SHORT leg.
     """
+    body = {
+        "symbol": symbol,
+        "long_exchange": long_exchange,
+        "short_exchange": short_exchange,
+    }
+    _put_wallet(body, "long_signer_address", long_wallet)
+    _put_wallet(body, "short_signer_address", short_wallet)
     try:
-        data = await client.post("/find-exit/preview", json={
-            "symbol": symbol,
-            "long_exchange": long_exchange,
-            "short_exchange": short_exchange,
-        })
+        data = await client.post("/find-exit/preview", json=body)
 
         net_pnl = data.get("net_pnl_usd", 0)
         funding_accrued = data.get("funding_accrued_usd", 0)
@@ -1865,6 +2003,8 @@ async def find_exit_start(
     long_exchange: str,
     short_exchange: str,
     max_wait_hours: float | None = None,
+    long_wallet: str | None = None,
+    short_wallet: str | None = None,
 ) -> str:
     """Start a Find-the-Exit job — backend continuously slices the position
     out at favorable moments (PnL ≥ adaptive_target with deep enough book).
@@ -1887,6 +2027,12 @@ async def find_exit_start(
             If set, target decays from 50% → 0 across this window. If
             unset, deadline auto-derived from next-negative-tick (or none
             when funding stays positive).
+        long_wallet: the address of the wallet whose venue account holds the LONG
+            leg, when that venue is connected from several wallets; omitted = the
+            wallet the position records (the venue's default (★) wallet when
+            there is no record). If the same pair is open on two wallets the
+            call is refused until you name them. See list_credentials.
+        short_wallet: the same, for the SHORT leg.
     """
     try:
         body = {
@@ -1896,6 +2042,8 @@ async def find_exit_start(
         }
         if max_wait_hours is not None:
             body["max_wait_hours"] = max_wait_hours
+        _put_wallet(body, "long_signer_address", long_wallet)
+        _put_wallet(body, "short_signer_address", short_wallet)
         data = await client.post("/find-exit/start", json=body)
         lines = [
             f"Find-the-Exit started (job {data.get('id')}):",

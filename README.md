@@ -115,6 +115,8 @@ The `Auth` column shows whether a tool needs an API key:
 | `close_delta_neutral` | key | Close both legs of a delta-neutral pair (market) |
 | `convert_stablecoin` | key | Convert between USDC / USDT / other stablecoins where supported |
 
+**Several wallets per DEX.** A DEX can be connected from several wallets at once, each its own venue account. Single-leg tools (`open_trade`, `close_trade`, `get_open_orders`, `cancel_order`, `get_order_fills`, `get_positions`, `get_balance`) take an optional `wallet`; pair tools (`open_delta_neutral`, `close_delta_neutral`, `twap_open_dn`, `twap_close_dn`, `watch_position`, `find_exit_preview`, `find_exit_start`) take optional `long_wallet` / `short_wallet`. Omitted = the venue's default (★) wallet — or, when closing, the wallets the position was opened on. `list_credentials` shows the addresses.
+
 ### Limit Orders (3, key required)
 
 Resting limit orders on **every tradable DEX** (aster, hyperliquid + HIP-3 sub-DEXes, lighter, pacifica, hibachi, extended, nado, grvt, 01xyz, variational, ethereal, hotstuff, risex, perpl, phoenix, ondo). A limit order from `open_trade` returns immediately with `status="open"` and an order id; manage it with these. `post_only` is honored on all of them **except lighter, 01xyz and variational**, where it is accepted but not enforceable — the order rests as a plain GTT that may take if marketable, and the response carries a warning saying so. On **ondo** post-only is enforced by *rejection* (`post_only_has_match` means your price would have crossed — reprice, don't retry blind), and a reduce-only limit is emulated by capping size to the live position, because reduce-only cannot ride a GTC limit there. **Per-DEX cancel id:** most DEXes' `open_trade` order id is cancellable directly; **Lighter resting orders must be located via `get_open_orders` first** — its `open_trade` response is a tx hash, not a cancellable id, so list-then-cancel.
@@ -150,8 +152,8 @@ Backend-orchestrated TWAP that slices a delta-neutral **open** or **close** over
 | Tool | Auth | Description |
 |------|------|-------------|
 | `store_credentials` | key | Save API keys / signer keys for a DEX (encrypted server-side) |
-| `list_credentials` | key | List which DEXes have credentials stored, with last-verified status |
-| `revoke_credentials` | key | Remove stored credentials for one DEX |
+| `list_credentials` | key | List which DEXes have credentials stored — every wallet connected to each, the venue's default marked ★ — with last-verified status |
+| `revoke_credentials` | key | Remove stored credentials for one DEX (every wallet's, or one wallet's with `wallet`) |
 | `revoke_all_credentials` | key | Remove all stored credentials |
 
 ### Find Exit (4, key required)

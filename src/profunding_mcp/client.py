@@ -102,10 +102,11 @@ class ProFundingClient:
         self._raise_with_detail(resp)
         return resp.json()
 
-    async def delete(self, path: str) -> Any:
+    async def delete(self, path: str, params: Optional[dict] = None) -> Any:
         """DELETE request to the API (cancels — also a write)."""
         try:
-            resp = await self._client.delete(path, timeout=_WRITE_TIMEOUT_S)
+            resp = await self._client.delete(path, params=params,
+                                             timeout=_WRITE_TIMEOUT_S)
         except httpx.TimeoutException as e:
             raise self._timed_out(path, _WRITE_TIMEOUT_S, wrote=True) from e
         self._raise_with_detail(resp)
