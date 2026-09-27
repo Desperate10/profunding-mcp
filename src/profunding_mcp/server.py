@@ -1016,9 +1016,9 @@ async def store_credentials(exchange: str, credentials: str) -> str:
     For maximum security, use the web form at profunding.pro/keys instead.
 
     Args:
-        exchange: Exchange name. Supported: Hyperliquid, Lighter, Aster, Pacifica,
-            Extended, Hibachi, Nado, Ethereal, GRVT, Variational, 01xyz, HotStuff,
-            RiseX, Ondo, Perpl, Phoenix. HIP-3 DEXes (TradeXYZ, Hyena, etc.) use
+        exchange: Exchange name. Supported: Hyperliquid, Lighter, LighterRH, Aster,
+            Pacifica, Extended, Hibachi, Nado, GRVT, Variational, 01xyz, RiseX,
+            Ondo, Perpl, Phoenix, TxFlow, Katana, Arcus, QFEX, PopDEX, Bulk. HIP-3 DEXes (TradeXYZ, Hyena, etc.) use
             Hyperliquid credentials. Only the four shapes below are documented
             here; for the rest use the web form at profunding.pro/keys, which
             knows every venue's required fields.
@@ -1130,10 +1130,11 @@ async def open_trade(
 
     Market by default. For a RESTING limit order set order_type="limit" and
     limit_price. Supported on EVERY tradable DEX: aster, hyperliquid (+ HIP-3
-    sub-DEXes), lighter, pacifica, hibachi, extended, nado, grvt, 01xyz,
-    variational, ethereal, hotstuff, risex, perpl, phoenix, ondo. An unsupported
+    sub-DEXes), lighter, lighterrh, pacifica, hibachi, extended, nado, grvt,
+    01xyz, variational, risex, perpl, phoenix, ondo, txflow, katana, arcus,
+    qfex, popdex, bulk. An unsupported
     exchange returns a clear error listing the live set. post_only is honored on
-    all of them except lighter, 01xyz and variational, where it is accepted but
+    all of them except lighter, lighterrh and variational, where it is accepted but
     NOT enforceable — the order rests as a plain GTT that may take if marketable,
     and the response carries a warning saying so. A limit order returns
     immediately with status "open" and an order id — then manage it with
@@ -1425,10 +1426,11 @@ async def twap_open_dn(
     (no client needed); poll with twap_job_status, stop with twap_cancel.
     [Free]
 
-    Supported on the backend-TWAP DEXes: hyperliquid, extended, pacifica,
-    aster, lighter, grvt, hibachi, ethereal, 01xyz, nado, variational, hotstuff,
-    risex, perpl, phoenix (+ HIP-3). An unsupported leg returns a clear error
-    with the live list, which is always authoritative over this one.
+    Supported on every tradable DEX: aster, hyperliquid (+ HIP-3
+    sub-DEXes), lighter, lighterrh, pacifica, hibachi, extended, nado, grvt,
+    01xyz, variational, risex, perpl, phoenix, ondo, txflow, katana, arcus,
+    qfex, popdex, bulk. An unsupported leg returns a
+    clear error with the live list, which is always authoritative over this one.
 
     Args:
         symbol: Trading pair (e.g. "ETH/USDC")
@@ -1495,8 +1497,8 @@ async def twap_close_dn(
     poll with twap_job_status, stop with twap_cancel.
     [Free]
 
-    Same backend-TWAP DEXes as twap_open_dn. NOT supported: hotstuff, risex —
-    use the frontend TWAP for those (an unsupported leg returns a clear error).
+    Same DEXes as twap_open_dn (an unsupported leg returns a clear error
+    listing the live set).
 
     Args:
         symbol: Trading pair (e.g. "ETH/USDC")

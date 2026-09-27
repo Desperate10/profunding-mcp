@@ -119,7 +119,7 @@ The `Auth` column shows whether a tool needs an API key:
 
 ### Limit Orders (3, key required)
 
-Resting limit orders on **every tradable DEX** (aster, hyperliquid + HIP-3 sub-DEXes, lighter, pacifica, hibachi, extended, nado, grvt, 01xyz, variational, ethereal, hotstuff, risex, perpl, phoenix, ondo). A limit order from `open_trade` returns immediately with `status="open"` and an order id; manage it with these. `post_only` is honored on all of them **except lighter, 01xyz and variational**, where it is accepted but not enforceable — the order rests as a plain GTT that may take if marketable, and the response carries a warning saying so. On **ondo** post-only is enforced by *rejection* (`post_only_has_match` means your price would have crossed — reprice, don't retry blind), and a reduce-only limit is emulated by capping size to the live position, because reduce-only cannot ride a GTC limit there. **Per-DEX cancel id:** most DEXes' `open_trade` order id is cancellable directly; **Lighter resting orders must be located via `get_open_orders` first** — its `open_trade` response is a tx hash, not a cancellable id, so list-then-cancel.
+Resting limit orders on **every tradable DEX** (aster, hyperliquid + HIP-3 sub-DEXes, lighter, lighterrh, pacifica, hibachi, extended, nado, grvt, 01xyz, variational, risex, perpl, phoenix, ondo, txflow, katana, arcus, qfex, popdex, bulk). A limit order from `open_trade` returns immediately with `status="open"` and an order id; manage it with these. `post_only` is honored on all of them **except lighter, lighterrh and variational**, where it is accepted but not enforceable — the order rests as a plain GTT that may take if marketable, and the response carries a warning saying so. On **ondo** post-only is enforced by *rejection* (`post_only_has_match` means your price would have crossed — reprice, don't retry blind), and a reduce-only limit is emulated by capping size to the live position, because reduce-only cannot ride a GTC limit there. **Per-DEX cancel id:** most DEXes' `open_trade` order id is cancellable directly; **Lighter resting orders must be located via `get_open_orders` first** — its `open_trade` response is a tx hash, not a cancellable id, so list-then-cancel.
 
 | Tool | Auth | Description |
 |------|------|-------------|
@@ -129,7 +129,7 @@ Resting limit orders on **every tradable DEX** (aster, hyperliquid + HIP-3 sub-D
 
 ### TWAP (5, key required)
 
-Backend-orchestrated TWAP that slices a delta-neutral **open** or **close** over time with per-slice slippage protection. Runs server-side (no client needed) — start it, then poll. Supported DEXes: hyperliquid, extended, pacifica, aster, lighter, grvt, hibachi, ethereal, 01xyz, nado, variational (+ HIP-3).
+Backend-orchestrated TWAP that slices a delta-neutral **open** or **close** over time with per-slice slippage protection. Runs server-side (no client needed) — start it, then poll. Supported DEXes: every tradable DEX — hyperliquid (+ HIP-3), lighter, lighterrh, aster, pacifica, extended, hibachi, nado, grvt, 01xyz, variational, risex, perpl, phoenix, ondo, txflow, katana, arcus, qfex, popdex, bulk.
 
 | Tool | Auth | Description |
 |------|------|-------------|
