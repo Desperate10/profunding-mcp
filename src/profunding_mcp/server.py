@@ -1946,11 +1946,11 @@ async def find_exit_preview(
 ) -> str:
     """Forecast a Find-the-Exit job before submitting.
 
-    Returns the position's current net PnL, funding accrued so far,
-    estimated exit cost (book walk), expected next-tick PnL, and a
-    days-to-break-even forecast at the current funding rate. Useful for
-    deciding whether the job will fire immediately (PnL>0) or run for a
-    long time before favorable conditions emerge.
+    Returns the job's own gate verdict (price PnL at mark vs its target:
+    this, not net PnL, decides whether the first poll fires), the net PnL
+    if closed now (open fees not included), funding accrued, estimated exit
+    cost (book walk), expected next-tick PnL, and a days-to-break-even
+    forecast at the current funding rate.
     [Free]
 
     Args:
@@ -1981,15 +1981,26 @@ async def find_exit_preview(
         secs_to_tick = data.get("seconds_to_next_funding_tick", -1)
         forecast_days = data.get("forecast_days_to_break_even")
 
-        lines = [
-            f"Find-the-Exit forecast — {symbol} ({long_exchange}/{short_exchange}):",
-            f"  Current net PnL:    ${net_pnl:+.2f}",
+        gate = data.get("gate") or None
+        lines = [f"Find-the-Exit forecast — {symbol} ({long_exchange}/{short_exchange}):"]
+        if gate:
+            target_label = ("half the best since open "
+                            f"(${float(gate.get('peak_usd', 0)):+.2f})"
+                            if float(gate.get("peak_usd", 0)) > 0
+                            else "price back at entry")
+            lines += [
+                f"  Price PnL at mark:  ${float(gate.get('price_pnl_usd', 0)):+.2f}",
+                f"  Closes at:          ${float(gate.get('target_usd', 0)):+.2f} ({target_label})",
+                "                      before fees and funding; fills land at bid/ask, below mark",
+            ]
+        lines += [
+            f"  Net if closed now:  ${net_pnl:+.2f} (excl. open fees)",
             f"  Funding accrued:    ${funding_accrued:+.2f}",
             f"  Exit cost (now):    ${-exit_cost:.2f}",
             f"  Next tick:          ${next_tick:+.2f} in {_format_seconds(secs_to_tick)}",
         ]
-        if net_pnl > 0:
-            lines.append("  → Already favorable. First slice fires on next poll (~5s).")
+        if gate and gate.get("would_fire_now"):
+            lines.append("  → At target now. First slice fires within ~5s if the books can take it.")
         elif forecast_days is not None:
             lines.append(f"  → Estimated days to break even: {forecast_days:.1f}d at current rate")
         else:
@@ -2008,8 +2019,9 @@ async def find_exit_start(
     long_wallet: str | None = None,
     short_wallet: str | None = None,
 ) -> str:
-    """Start a Find-the-Exit job — backend continuously slices the position
-    out at favorable moments (PnL ≥ adaptive_target with deep enough book).
+    """Start a Find-the-Exit job — backend slices the position out when its
+    price PnL at mark (before fees and funding) reaches the adaptive target
+    and the books are deep enough.
 
     Adaptive target: 50% of the position's lifetime peak per-unit price-PnL,
     bootstrapped from PositionTick history. Decays toward 0 as the deadline
@@ -2112,7 +2124,7 @@ def _format_find_exit_event(ev: dict) -> str:
         tgt = _num("target_per_unit")
         if units is not None and cur is not None and tgt is not None:
             gate = (f"vs target ${tgt * units:.2f}" if tgt * units > 0
-                    else "vs first positive crossing")
+                    else "vs target: back at entry")
             best = _num("best_per_unit_seen")
             best_part = (f", best approach ≈ ${best * units:+.2f}"
                          if best is not None else "")
@@ -2135,7 +2147,7 @@ def _format_find_exit_event(ev: dict) -> str:
     if etype == "job_started":
         boot = _num("bootstrap_max_per_unit")
         if boot == 0:
-            return "job started (no favorable history yet — closes at first positive PnL)"
+            return "job started (no gain since open yet; target: price back at entry, at mark)"
         units = _units()
         if boot is not None and units is not None:
             return (f"job started (bootstrap peak ≈ ${boot * units:.2f}, "
@@ -2153,7 +2165,7 @@ def _format_find_exit_event(ev: dict) -> str:
         return f"new confirmed peak {_f('new_max_per_unit')}/unit (was {_f('old_max_per_unit')})"
     if etype == "slice_fired":
         return (f"slice #{ctx.get('slice_index', '?')} filled — "
-                f"${_f('slice_usd', '{:.2f}')} closed, PnL ${_f('slice_pnl_usd', '{:+.2f}')}")
+                f"${_f('slice_usd', '{:.2f}')} closed, price PnL ${_f('slice_pnl_usd', '{:+.2f}')}")
     if etype == "slice_transient_retry":
         return f"slice #{ctx.get('slice_index', '?')} transient error, retrying"
     if etype == "force_close":
@@ -2172,6 +2184,9 @@ def _format_find_exit_event(ev: dict) -> str:
                 f"(${_f('notional_usd', '{:.2f}')})")
     if etype == "job_finished":
         reason = ctx.get("exit_reason") or ctx.get("status") or "?"
+        pnl = _num("price_pnl_usd")
+        if pnl is not None and ctx.get("status") != "cancelled":
+            return f"finished: {reason} (price PnL ${pnl:+.2f} before fees and funding)"
         return f"finished: {reason}"
     return etype
 
@@ -2199,7 +2214,7 @@ async def find_exit_status(job_id: str) -> str:
             f"  Pair:             {job.get('symbol')} ({job.get('long_exchange')}/{job.get('short_exchange')})",
             f"  Filled:           {pct_filled:.0f}% ({job.get('fills_count')} slices)",
             f"  Total filled:     ${float(job.get('total_filled_usd', 0)):.2f}",
-            f"  Realised PnL:     ${float(job.get('realised_pnl_usd', 0)):+.2f}",
+            f"  Price PnL:        ${float(job.get('realised_pnl_usd', 0)):+.2f} (fills vs entry, before fees & funding)",
         ]
         # v1.1 — gate transparency.
         peak = float(job.get("max_price_pnl_per_unit_seen", 0))
