@@ -1948,7 +1948,7 @@ async def find_exit_preview(
 
     Returns the job's own gate verdict (price PnL at mark vs its target:
     this, not net PnL, decides whether the first poll fires), the net PnL
-    if closed now (open fees not included), funding accrued, estimated exit
+    if closed now (after open and close fees), funding accrued, estimated exit
     cost (book walk), expected next-tick PnL, and a days-to-break-even
     forecast at the current funding rate.
     [Free]
@@ -1994,7 +1994,9 @@ async def find_exit_preview(
                 "                      before fees and funding; fills land at bid/ask, below mark",
             ]
         lines += [
-            f"  Net if closed now:  ${net_pnl:+.2f} (excl. open fees)",
+            f"  Net if closed now:  ${net_pnl:+.2f} (after open and close fees)",
+            f"  Fees paid to open:  ${-float(data.get('entry_fees_usd', 0) or 0):.2f}"
+            + (" (estimated)" if data.get("entry_fees_estimated") else ""),
             f"  Funding accrued:    ${funding_accrued:+.2f}",
             f"  Exit cost (now):    ${-exit_cost:.2f}",
             f"  Next tick:          ${next_tick:+.2f} in {_format_seconds(secs_to_tick)}",
