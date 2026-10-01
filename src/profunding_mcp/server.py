@@ -187,15 +187,23 @@ async def get_historical_rates(
     symbol: str,
     exchange: str,
     days: int = 7,
+    raw: bool = False,
 ) -> str:
     """Get historical funding rates for a symbol on a specific exchange.
     [Free]
 
+    Each point is one hour: the average of the venue's quoted funding rate
+    sampled during that hour, annualized to APR. It is the quoted rate, not
+    the settled payment. Hours with no samples are absent, not zero.
+
     Args:
         symbol: Trading pair (e.g. "ETH/USDC")
         exchange: Exchange name (e.g. "Hyperliquid")
-        days: Lookback period in days (1-90, default 7)
+        days: Lookback period in days (1-30, default 7)
+        raw: Also return the full hourly series as `timestamp,apr` rows
+            (oldest first), for backtests and streak analysis
     """
+    days = max(1, min(days, 30))  # backend rejects >30 with a 422
     exchange = await _normalize_exchange(exchange)
     data = await client.get("/rates/historical", params={
         "symbol": symbol,
@@ -213,12 +221,16 @@ async def get_historical_rates(
     avg = sum(aprs) / len(aprs) if aprs else 0
     mn, mx = min(aprs), max(aprs)
 
-    return (
-        f"{symbol} on {exchange} — last {days} days ({len(rates)} data points):\n"
+    out = (
+        f"{symbol} on {exchange} — last {days} days ({len(rates)} hourly points):\n"
         f"  Avg APR: {avg:.1f}%\n"
         f"  Min APR: {mn:.1f}%\n"
         f"  Max APR: {mx:.1f}%"
     )
+    if raw:
+        rows = [f"{r['timestamp']},{float(r['funding_rate_apr']):.4f}" for r in rates]
+        out += "\n\ntimestamp,apr_pct\n" + "\n".join(rows)
+    return out
 
 
 @mcp.tool()
@@ -302,16 +314,23 @@ async def get_rate_chart_data(
     long_exchange: str,
     short_exchange: str,
     days: int = 30,
+    raw: bool = False,
 ) -> str:
     """Get funding rate spread chart data for a pair across two exchanges.
     [Free]
+
+    Spread = short APR - long APR per hour (positive = the pair earns).
+    Only hours where BOTH venues have data are included.
 
     Args:
         symbol: Trading pair (e.g. "ETH/USDC")
         long_exchange: First exchange
         short_exchange: Second exchange
         days: Lookback period (1-30, default 30)
+        raw: Also return the full hourly series as
+            `timestamp,long_apr,short_apr,spread_apr` rows (oldest first)
     """
+    days = max(1, min(days, 30))  # backend rejects >30 with a 422
     long_exchange = await _normalize_exchange(long_exchange)
     short_exchange = await _normalize_exchange(short_exchange)
     data = await client.get("/rates/chart-data", params={
@@ -326,24 +345,30 @@ async def get_rate_chart_data(
     if not points:
         return f"No chart data for {symbol} ({long_exchange} vs {short_exchange})."
 
-    # Compute spread statistics
-    spreads = []
-    for p in points:
-        long_apr = p.get("long_apr", 0) or 0
-        short_apr = p.get("short_apr", 0) or 0
-        spreads.append(short_apr - long_apr)
+    # The backend owns the spread (shortRate - longRate per hour); read it,
+    # don't recompute. This used to read long_apr/short_apr — keys the
+    # endpoint never sent — so every spread came out 0.0.
+    spreads = [float(p["spread"]) for p in points]
 
-    avg_spread = sum(spreads) / len(spreads) if spreads else 0
-    max_spread = max(spreads) if spreads else 0
-    min_spread = min(spreads) if spreads else 0
+    avg_spread = sum(spreads) / len(spreads)
+    max_spread = max(spreads)
+    min_spread = min(spreads)
 
-    return (
+    out = (
         f"{symbol} spread ({long_exchange} vs {short_exchange}) — last {days} days:\n"
-        f"  Data points: {len(points)}\n"
+        f"  Data points: {len(points)} hourly\n"
         f"  Avg spread: {avg_spread:.1f}% APR\n"
         f"  Max spread: {max_spread:.1f}% APR\n"
         f"  Min spread: {min_spread:.1f}% APR"
     )
+    if raw:
+        rows = [
+            f"{p['timestamp']},{float(p['longRate']):.4f},"
+            f"{float(p['shortRate']):.4f},{float(p['spread']):.4f}"
+            for p in points
+        ]
+        out += "\n\ntimestamp,long_apr_pct,short_apr_pct,spread_apr_pct\n" + "\n".join(rows)
+    return out
 
 
 # ─── PAID TIER TOOLS ─────────────────────────────────────────
