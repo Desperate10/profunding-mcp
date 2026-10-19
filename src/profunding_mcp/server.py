@@ -972,17 +972,20 @@ async def compare_exchanges(
     if isinstance(opps, dict) and "detail" in opps:
         return f"Error: {opps['detail']}"
 
-    # Collect unique exchanges and their raw funding rate for this symbol
-    # Raw rate: positive = longs pay shorts. short_apr = raw rate, long_apr = -raw rate.
+    # Collect unique exchanges and their raw funding rate for this symbol.
+    # BOTH long_apr and short_apr are the venue's RAW rate APR (positive =
+    # longs pay shorts) — the backend copies funding_rate_apr into each leg
+    # unchanged (aggregator.py). Negating long_apr here once flipped the sign of
+    # every venue first seen as a long leg (RiseX SKHYNIX raw -107.1 shown +107.1).
     exchange_set = set()
     exchange_rates = {}
     for o in (opps if isinstance(opps, list) else []):
         if o.get("symbol") != symbol:
             continue
         if o["long_exchange"] not in exchange_rates:
-            exchange_rates[o["long_exchange"]] = -o["long_apr"]  # negate: long_apr is PnL when long
+            exchange_rates[o["long_exchange"]] = o["long_apr"]
         if o["short_exchange"] not in exchange_rates:
-            exchange_rates[o["short_exchange"]] = o["short_apr"]  # short_apr = raw rate
+            exchange_rates[o["short_exchange"]] = o["short_apr"]
         exchange_set.add(o["long_exchange"])
         exchange_set.add(o["short_exchange"])
 
