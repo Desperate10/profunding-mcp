@@ -66,6 +66,24 @@ async def _get_exchange_map() -> dict[str, str]:
     return _EXCHANGE_NAMES
 
 
+def _same_venue(a: object, b: object) -> bool:
+    """Venue names match case-insensitively. `/exchanges` (what
+    _normalize_exchange resolves to) returns lowercase keys ("hyperliquid")
+    while `/opportunities` and pair intelligence use display names
+    ("Hyperliquid"); exact `==` between the two never matched, which left
+    analyze_pair's funding and intelligence sections and the
+    compare_exchanges filter permanently empty."""
+    return isinstance(a, str) and isinstance(b, str) and a.lower() == b.lower()
+
+
+def _spread_pct(point: dict) -> float | None:
+    """`/prices/chart-data` points carry `spreadPct` (camelCase); older
+    builds read `spread_pct`, which is never present, so every spread read
+    came back empty."""
+    v = point.get("spreadPct", point.get("spread_pct"))
+    return float(v) if v is not None else None
+
+
 async def _normalize_exchange(name: str) -> str:
     """Resolve user input to canonical exchange name (case-insensitive)."""
     mapping = await _get_exchange_map()
@@ -376,7 +394,7 @@ async def get_rate_chart_data(
 @mcp.tool()
 async def get_pair_intelligence() -> str:
     """Get risk scores and backtested APR for all opportunity pairs.
-    Pre-computed every 5 minutes. Includes spread risk, 30d average, smart ranking.
+    Recomputed hourly. Includes spread risk, 30d average, smart ranking.
     [Free]
     """
     data = await client.get("/analytics/pair-intelligence")
@@ -436,7 +454,7 @@ async def get_price_spread_data(
     if not points:
         return f"No price data for {symbol} ({long_exchange} vs {short_exchange})."
 
-    spreads = [p.get("spread_pct", 0) for p in points if p.get("spread_pct") is not None]
+    spreads = [_spread_pct(p) for p in points if _spread_pct(p) is not None]
     if not spreads:
         return "Price data available but no spread calculations."
 
@@ -733,7 +751,7 @@ async def get_smart_opportunities(
 
     lines = [f"Smart opportunities for ${position_size:,.0f} ({len(opps)} results):\n"]
     for o in opps:
-        risk_emoji = {"low": "safe", "medium": "moderate", "high": "risky", "unknown": "no data"}.get(o.get("risk_level", "unknown"), "?")
+        risk_emoji = {"low": "low", "medium": "medium", "high": "high", "unknown": "no data"}.get(o.get("risk_level", "unknown"), "?")
         lines.append(
             f"  {o['symbol']} — {o['long_exchange']}/{o['short_exchange']} — "
             f"{o['net_apr']:.1f}% APR, {o.get('entry_cost_pct', 0):.3f}% entry cost, "
@@ -863,8 +881,8 @@ async def analyze_pair(
     if not isinstance(opps, Exception):
         found = None
         for o in (opps if isinstance(opps, list) else []):
-            if (o.get("long_exchange") == long_exchange and
-                o.get("short_exchange") == short_exchange and
+            if (_same_venue(o.get("long_exchange"), long_exchange) and
+                _same_venue(o.get("short_exchange"), short_exchange) and
                 o.get("symbol") == symbol):
                 found = o
                 break
@@ -893,8 +911,11 @@ async def analyze_pair(
     # 3. Pair intelligence
     lines.append("\n── 30-Day Intelligence ──")
     if not isinstance(intel_data, Exception):
-        pair_key = f"{symbol}|{long_exchange}|{short_exchange}"
-        intel = intel_data.get("pairs", {}).get(pair_key, {})
+        pair_key = f"{symbol}|{long_exchange}|{short_exchange}".lower()
+        intel = next(
+            (v for k, v in (intel_data.get("pairs") or {}).items() if k.lower() == pair_key),
+            {},
+        )
         if intel:
             depth_label = {1.0: "$10k+", 0.8: "$5-10k", 0.5: "$1-5k", 0.2: "<$1k"}.get(
                 intel.get("depth_score"), "unknown")
@@ -937,7 +958,7 @@ async def analyze_pair(
     if not isinstance(price_spread, Exception):
         points = price_spread if isinstance(price_spread, list) else price_spread.get("data", [])
         if points:
-            spreads = [p.get("spread_pct", 0) for p in points if p.get("spread_pct") is not None]
+            spreads = [_spread_pct(p) for p in points if _spread_pct(p) is not None]
             if spreads:
                 lines.append(f"  Avg divergence: {sum(spreads)/len(spreads):.4f}%")
                 lines.append(f"  Max divergence: {max(spreads):.4f}%")
@@ -991,8 +1012,8 @@ async def compare_exchanges(
 
     if exchanges:
         mapping = await _get_exchange_map()
-        filter_set = {mapping.get(e.strip().lower(), e.strip()) for e in exchanges.split(",")}
-        exchange_set = exchange_set & filter_set
+        wanted = {mapping.get(e.strip().lower(), e.strip()).lower() for e in exchanges.split(",")}
+        exchange_set = {ex for ex in exchange_set if ex.lower() in wanted}
         if not exchange_set:
             return f"None of [{exchanges}] list {symbol}. Available: {', '.join(sorted(exchange_rates.keys()))}"
 
@@ -1041,14 +1062,15 @@ async def store_credentials(exchange: str, credentials: str) -> str:
 
     SECURITY WARNING: Credentials pass through this conversation and may be logged
     by your AI provider. Only provide agent/signer keys (trade-only, no withdrawal).
-    For maximum security, use the web form at profunding.pro/keys instead.
+    For maximum security, connect the venue on profunding.pro/trade instead: the
+    key is saved there without passing through this chat.
 
     Args:
         exchange: Exchange name. Supported: Hyperliquid, Lighter, LighterRH, Aster,
             Pacifica, Extended, Hibachi, Nado, GRVT, Variational, 01xyz, RiseX,
-            Ondo, Perpl, Phoenix, TxFlow, Katana, Arcus, QFEX, PopDEX, Bulk. HIP-3 DEXes (TradeXYZ, Hyena, etc.) use
+            Ondo, Perpl, Phoenix, TxFlow, Katana, Arcus, QFEX, PopDEX, Bulk. HIP-3 DEXes (TradeXYZ, Entropy) use
             Hyperliquid credentials. Only the four shapes below are documented
-            here; for the rest use the web form at profunding.pro/keys, which
+            here; for the rest connect the venue on profunding.pro/trade, which
             knows every venue's required fields.
         credentials: JSON string with exchange-specific fields:
             Hyperliquid: {"wallet_address": "0x...", "agent_address": "0x...", "agent_private_key": "0x..."}

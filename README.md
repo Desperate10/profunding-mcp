@@ -76,7 +76,7 @@ The `Auth` column shows whether a tool needs an API key:
 - **open** — public, no key needed
 - **key** — needs a free API key (wallet-bound for find-exit / trading)
 
-### Market Data & Discovery (12, all open)
+### Market Data & Discovery (12)
 
 | Tool | Auth | Description |
 |------|------|-------------|
@@ -86,12 +86,12 @@ The `Auth` column shows whether a tool needs an API key:
 | `get_rate_chart_data` | open | Funding rate spread over time between two exchanges |
 | `get_price_spread_data` | open | Mark price divergence between two exchanges (price risk analysis) |
 | `run_backtest` | open | Backtest a delta-neutral trade with real historical data |
-| `analyze_pair` | open | Full end-to-end analysis: funding + backtest + risk + depth on both legs + price spread |
-| `compare_exchanges` | open | Side-by-side comparison of same symbol across exchanges: rates, spread, depth, volume |
-| `find_best_trade` | open | Best trade you can open right now at your position size — ranked by net APR after fees, liquidity, and risk |
-| `get_smart_opportunities` | open | Opportunities ranked by how tradable they actually are — APR, depth, and stability combined |
+| `analyze_pair` | open (order books need a key) | Full end-to-end analysis: funding + backtest + risk + depth on both legs + price spread |
+| `compare_exchanges` | open (order books need a key) | Side-by-side comparison of same symbol across exchanges: rates, spread, depth, volume |
+| `find_best_trade` | key | Best trade you can open right now at your position size — ranked by net APR after fees, liquidity, and risk |
+| `get_smart_opportunities` | key | Opportunities ranked by how tradable they actually are — APR, depth, and stability combined |
 | `get_pair_intelligence` | open | Risk scores, backtested APR, smart ranking, depth tiers for all pairs |
-| `check_liquidity` | open | Real-time order book depth + slippage estimates at $1k/$5k/$10k |
+| `check_liquidity` | key | Real-time order book depth + slippage estimates at $1k/$5k/$10k |
 
 ### Deep Analytics (7, key required)
 
