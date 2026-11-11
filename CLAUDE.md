@@ -7,7 +7,7 @@ The MCP server (`mcp-server/`) is published as `profunding-mcp` on PyPI. Publish
 ```bash
 # 1. Bump version in mcp-server/pyproject.toml (include in same commit or separate)
 # 2. Tag the commit
-git tag mcp-v0.5.0
+git tag -a mcp-vX.Y.Z -m "mcp vX.Y.Z"   # annotated: --follow-tags skips lightweight tags
 # 3. Push commit + tag in ONE push (avoids duplicate CI runs)
 git push origin master --follow-tags
 ```
